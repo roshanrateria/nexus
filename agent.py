@@ -22,7 +22,7 @@ from langgraph.types import Command, StreamWriter
 from playwright.async_api import async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential_jitter
 
-from ledger import Ledger
+from ledger import Ledger, LedgerHandler
 from schemas import (
     AgentState,
     ClickArgs,
@@ -571,9 +571,9 @@ def require_report(message: AIMessage) -> AIMessage:
 def build_models(settings: Settings, ledger: Ledger) -> Models:
     """One ChatOpenAI per role against its configured endpoint.
 
-    `ledger` is consumed by the LedgerHandlers wired onto the callbacks at T4;
-    one rate limiter is shared per endpoint so two roles on the same endpoint
-    share a single budget.
+    Every role gets a LedgerHandler counting what leaves the machine; planner
+    and reporter handlers are ALWAYS text_only. One rate limiter is shared per
+    endpoint so two roles on the same endpoint share a single budget.
     """
     limiters = {
         endpoint: InMemoryRateLimiter(
@@ -591,7 +591,7 @@ def build_models(settings: Settings, ledger: Ledger) -> Models:
             rate_limiter=limiters[endpoint],
             max_retries=1,
             stream_usage=True,
-            callbacks=[],
+            callbacks=[LedgerHandler(ledger, role, endpoint, text_only=role in ("planner", "reporter"))],
         )
 
     return Models(

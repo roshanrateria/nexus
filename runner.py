@@ -163,6 +163,7 @@ class Hub:
             "log": [],
             "report": "",
             "report_path": "",
+            "ledger": {},
         }
 
     def note(self, kind: str, text: str) -> None:
@@ -248,6 +249,8 @@ class Hub:
         elif kind == "report_done":
             s["report_path"] = e["path"]
             self.note("ok", f"Report saved to {e['path']}")
+        elif kind == "ledger":
+            s.update(ledger=e["data"])
         elif kind == "finished":
             s.update(status="done", outcome=e["status"], current={})
 
@@ -381,7 +384,7 @@ async def run(args: argparse.Namespace) -> None:
             saver = InMemorySaver()
         dashboard = stack.enter_context(Dashboard(settings, hub))
         browser = await stack.enter_async_context(BrowserSession(settings))
-        ledger = Ledger()
+        ledger = Ledger(on_change=lambda snapshot: hub.publish({"type": "ledger", "data": snapshot}))
         graph = build_graph(settings, build_models(settings, ledger), browser, saver)
         console.print(f"[cyan]Dashboard: {dashboard.url}[/]")
         if settings.dashboard_open:
