@@ -5,7 +5,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
-from urllib.parse import urljoin
+import urllib.request
+import urllib.robotparser
+from urllib.parse import urljoin, urlsplit
 
 import yaml
 from langchain_core.language_models import BaseChatModel
@@ -48,10 +50,8 @@ from schemas import (
 PROMPTS = yaml.safe_load((Path(__file__).parent / "prompts.yml").read_text(encoding="utf-8"))
 REPORT_RE = re.compile(PROMPTS["executor"]["report_pattern"], re.IGNORECASE)
 
-STEALTH_JS = """
-Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-window.chrome = window.chrome || {runtime: {}};
-"""
+# Sentinel for "robots.txt could not be fetched": cached fail-open decision.
+_ROBOTS_FAIL_OPEN = object()
 
 SNAPSHOT_JS = """
 ({start, margin, maxChars, ref}) => {
@@ -212,6 +212,24 @@ class Observation:
     title: str
 
 
+def _origin(url: str) -> str | None:
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        return None
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def _fetch_robots(origin: str) -> urllib.robotparser.RobotFileParser | None:
+    """Fetch and parse a robots.txt; None means the fetch failed (fail open)."""
+    try:
+        with urllib.request.urlopen(f"{origin}/robots.txt", timeout=10) as response:
+            parser = urllib.robotparser.RobotFileParser()
+            parser.parse(response.read().decode("utf-8", "replace").splitlines())
+            return parser
+    except Exception:
+        return None
+
+
 class BrowserSession:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -219,6 +237,7 @@ class BrowserSession:
         self.ref = 0
         self.frame_ranges: list = []
         self.dialogs: list[str] = []
+        self._robots: dict[str, urllib.robotparser.RobotFileParser | object] = {}
 
     async def __aenter__(self) -> "BrowserSession":
         s = self.settings
@@ -232,11 +251,9 @@ class BrowserSession:
             timezone_id=s.browser_timezone,
             extra_http_headers=s.browser_extra_headers,
             args=s.browser_launch_args,
-            ignore_default_args=["--enable-automation"],
         )
         self.context.set_default_timeout(s.action_timeout_ms)
         self.context.set_default_navigation_timeout(s.navigation_timeout_ms)
-        await self.context.add_init_script(STEALTH_JS)
         self.context.on("page", self._adopt)
         self.page = self.context.pages[0]
         self.page.on("dialog", self._on_dialog)
@@ -253,6 +270,16 @@ class BrowserSession:
     async def _on_dialog(self, dialog) -> None:
         self.dialogs.append(f"{dialog.type}: {dialog.message}")
         await dialog.accept()
+
+    async def _robots_allows(self, url: str) -> bool:
+        origin = _origin(url)
+        if origin is None:
+            return True
+        if origin not in self._robots:
+            parser = await asyncio.to_thread(_fetch_robots, origin)
+            self._robots[origin] = parser if parser is not None else _ROBOTS_FAIL_OPEN
+        parser = self._robots[origin]
+        return parser is _ROBOTS_FAIL_OPEN or parser.can_fetch("*", url)
 
     @property
     def active_page(self):
@@ -347,7 +374,10 @@ class BrowserSession:
 
     async def navigate(self, url: str) -> str:
         page = self.active_page
-        response = await page.goto(urljoin(page.url, url), wait_until="domcontentloaded")
+        target = urljoin(page.url, url)
+        if not await self._robots_allows(target):
+            raise ValueError("blocked by robots.txt")
+        response = await page.goto(target, wait_until="domcontentloaded")
         await self._settle()
         status = f" (HTTP {response.status})" if response else ""
         return f"Navigated to {self.active_page.url}{status}"
@@ -600,6 +630,8 @@ def build_tools(browser: BrowserSession) -> list[StructuredTool]:
         ("new_tab", NewTabArgs, browser.new_tab, False),
         ("close_tab", TabArgs, browser.close_tab, False),
     ]
+    if not browser.settings.allow_run_javascript:
+        registry = [entry for entry in registry if entry[0] != "run_javascript"]
     return [
         StructuredTool.from_function(
             coroutine=serialized(browser, fn),

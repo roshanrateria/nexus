@@ -50,10 +50,25 @@ class Settings(BaseModel):
     dashboard_port: int
     dashboard_open: bool
     dashboard_max_log: int
+    allow_run_javascript: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
-        return cls(**{name: os.environ[name.upper()] for name in cls.model_fields})
+        values: dict[str, object] = {}
+        missing = []
+        for name in cls.model_fields:
+            raw = os.environ.get(name.upper())
+            if raw is None:
+                field = cls.model_fields[name]
+                if field.is_required():
+                    missing.append(name.upper())
+                else:
+                    values[name] = field.get_default()
+            else:
+                values[name] = raw
+        if missing:
+            raise KeyError(f"missing required environment variables: {', '.join(missing)}")
+        return cls(**values)
 
 
 class PlanStep(BaseModel):
