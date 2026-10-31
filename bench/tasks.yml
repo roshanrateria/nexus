@@ -1,0 +1,136 @@
+# Benchmark tasks: stable public pages only (Wikipedia facts, python.org docs,
+# MDN, public GitHub READMEs). 15 tasks, no politics/war/medical topics.
+# Every must_contain regex is matched case-insensitively against the final
+# report text, so each entry is an expected ANSWER VERBATIM from the page.
+# Live-site facts are confirmed by hand before the run using run with old data.
+
+tasks:
+  - id: wiki_eiffel_height
+    goal: >-
+      Open the Wikipedia article "Eiffel Tower" and report the tower's current
+      height in metres to the tip, including its antenna.
+    # VERIFY MANUALLY: the height has changed over the years (300/312/324/330 m); confirm today's figure on the live article.
+    must_contain:
+      - '3(12|24|30)\s?m'
+
+  - id: wiki_python_release_year
+    goal: >-
+      Open the Wikipedia article "Python (programming language)" and report the
+      year the language was first released.
+    # VERIFY MANUALLY: confirm the release year (1991) on the live article.
+    must_contain:
+      - '\b1991\b'
+
+  - id: wiki_golden_ratio
+    goal: >-
+      Open the Wikipedia article "Golden ratio" and report its value to at
+      least four decimal places.
+    # VERIFY MANUALLY: confirm the decimal expansion (1.6180...) on the live article.
+    must_contain:
+      - '1\.618'
+
+  - id: wiki_everest_height
+    goal: >-
+      Open the Wikipedia article "Mount Everest" and report the current
+      officially recognised elevation of Mount Everest in metres.
+    # VERIFY MANUALLY: the jointly recognised figure is 8,848.86 m; confirm the live article's wording.
+    must_contain:
+      - '8,?8[0-9]{2}'
+
+  - id: wiki_light_speed
+    goal: >-
+      Open the Wikipedia article "Speed of light" and report the speed of
+      light in a vacuum in kilometres per second to at least the nearest unit.
+    # VERIFY MANUALLY: confirm the exact value (299,792.458 km/s) on the live article.
+    must_contain:
+      - '299,?79[0-9]'
+
+  - id: wiki_helium
+    goal: >-
+      Open the Wikipedia article "Helium" and report its atomic number as a
+      standalone number.
+    # VERIFY MANUALLY: confirm the atomic number (2) on the live article.
+    must_contain:
+      - '[Hh]elium'
+      - '\b2\b'
+
+  - id: py_docs_len
+    goal: >-
+      Open the Python documentation page for the built-in function len
+      (https://docs.python.org/3/library/functions.html#len) and report what
+      len returns, quoting the wording of the docs about the number of items.
+    # VERIFY MANUALLY: confirm the docs wording ("Return the number of items...") on the live page.
+    must_contain:
+      - 'number of items'
+
+  - id: py_math_pi
+    goal: >-
+      Open the Python documentation page for the math module constants
+      (https://docs.python.org/3/library/math.html) and report the value of
+      math.pi to at least six decimal places.
+    # VERIFY MANUALLY: confirm the value of pi (3.141592...) shown in the docs.
+    must_contain:
+      - '3\.14159'
+
+  - id: py_download_version
+    goal: >-
+      Open https://www.python.org/downloads/ and report the current stable
+      release version of Python.
+    # VERIFY MANUALLY: confirm the headline version on the downloads page (3.1x).
+    must_contain:
+      - '3\.1[0-9]+'
+
+  - id: mdn_array_push
+    goal: >-
+      Open the MDN page for Array.prototype.push
+      (https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/push)
+      and report what value the push method returns.
+    # VERIFY MANUALLY: confirm MDN wording ("returns the new length of the array").
+    must_contain:
+      - 'new length'
+
+  - id: mdn_math_round
+    goal: >-
+      Open the MDN page for
+      Math.round (https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/round)
+      and report how Math.round treats the halfway value.
+    # VERIFY MANUALLY: confirm MDN wording about the halfway case and Infinity choice.
+    must_contain:
+      - 'halfway'
+
+  - id: mdn_fetch_ok
+    goal: >-
+      Open the MDN page for the fetch Response ok property
+      (https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Response/ok)
+      and report which HTTP status codes make the ok property true.
+    # VERIFY MANUALLY: confirm on the live page; expect 200/299 or 2xx phrasing.
+    must_contain:
+      - '2[0-9x]{2}'
+
+  - id: gh_flask_readme
+    goal: >-
+      Open the Flask repository README at
+      https://raw.githubusercontent.com/pallets/flask/HEAD/README.md and quote
+      the sentence that begins "Flask is a".
+    # VERIFY MANUALLY: confirm the tagline ("lightweight WSGI web application framework") in the live README.
+    must_contain:
+      - 'lightweight WSGI'
+
+  - id: gh_requests_readme
+    goal: >-
+      Open the Requests repository README at
+      https://raw.githubusercontent.com/psf/requests/HEAD/README.md and quote
+      the description line mentioning what audience Requests is built for.
+    # VERIFY MANUALLY: confirm the tagline ("built for human beings") in the live README.
+    must_contain:
+      - 'human beings'
+
+  - id: gh_pytest_readme
+    goal: >-
+      Open the pytest repository README at
+      https://raw.githubusercontent.com/pytest-dev/pytest/HEAD/README.rst and
+      report what the framework claims to make easy to write - quote the
+      phrasing about small tests.
+    # VERIFY MANUALLY: confirm the tagline ("small tests") in the live README.
+    must_contain:
+      - 'small tests'
