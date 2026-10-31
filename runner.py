@@ -3,11 +3,14 @@ import asyncio
 import contextlib
 import json
 import queue
+import re
 import threading
 import time
 import uuid
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import InMemorySaver
@@ -17,7 +20,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from agent import BrowserSession, build_graph, build_models
+from agent import RUNS_DIR, BrowserSession, build_graph, build_models
 from ledger import Ledger
 from schemas import Settings
 
@@ -256,6 +259,9 @@ class Hub:
             s.update(status="done", outcome=e["status"], current={})
 
 
+SHOTS_URL_RE = re.compile(r"^shots/([a-f0-9]{8})/(\d+)\.jpg$")
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -268,22 +274,47 @@ def make_handler(hub: Hub):
         def log_message(self, *args) -> None:
             return None
 
-        def do_GET(self) -> None:
-            if self.path == "/events":
-                self.stream()
-            else:
-                self.page()
-
-        def page(self) -> None:
-            body = DASHBOARD_HTML.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+        def _send(self, status: int, content_type: str, body: bytes) -> None:
+            self.send_response(status)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
+        def do_GET(self) -> None:
+            path = urlsplit(self.path).path.lstrip("/")
+            if path == "events":
+                self.stream()
+            elif path == "state":
+                with hub.lock:
+                    body = json.dumps(hub.state).encode("utf-8")
+                self._send(200, "application/json", body)
+            elif path.startswith("shots/"):
+                match = SHOTS_URL_RE.match(path)
+                if match:
+                    self.shot(match)
+                else:
+                    self._send(404, "text/plain", b"not found")
+            else:
+                self.page()
+
+        def do_OPTIONS(self) -> None:
+            self._send(204, "text/plain", b"")
+
+        def page(self) -> None:
+            self._send(200, "text/html; charset=utf-8", DASHBOARD_HTML.encode("utf-8"))
+
+        def shot(self, match) -> None:
+            target = Path(RUNS_DIR) / match.group(1) / "shots" / f"{match.group(2)}.jpg"
+            if not target.is_file():
+                self._send(404, "text/plain", b"not found")
+                return
+            self._send(200, "image/jpeg", target.read_bytes())
+
         def stream(self) -> None:
             self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
