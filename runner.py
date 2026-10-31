@@ -18,6 +18,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from agent import BrowserSession, build_graph, build_models
+from ledger import Ledger
 from schemas import Settings
 
 DASHBOARD_HTML = r"""<!doctype html>
@@ -370,7 +371,8 @@ async def run(args: argparse.Namespace) -> None:
             saver = InMemorySaver()
         dashboard = stack.enter_context(Dashboard(settings, hub))
         browser = await stack.enter_async_context(BrowserSession(settings))
-        graph = build_graph(settings, build_models(settings), browser, saver)
+        ledger = Ledger()
+        graph = build_graph(settings, build_models(settings, ledger), browser, saver)
         console.print(f"[cyan]Dashboard: {dashboard.url}[/]")
         if settings.dashboard_open:
             webbrowser.open(dashboard.url)

@@ -15,14 +15,14 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from langchain_core.tools import StructuredTool
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.types import Command, StreamWriter
 from playwright.async_api import async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential_jitter
 
+from ledger import Ledger
 from schemas import (
     AgentState,
     ClickArgs,
@@ -558,24 +558,37 @@ def require_report(message: AIMessage) -> AIMessage:
     raise ValueError("the final report must start with STATUS")
 
 
-def build_models(settings: Settings) -> Models:
-    def limiter() -> InMemoryRateLimiter:
-        return InMemoryRateLimiter(requests_per_second=settings.rate_limit_rpm / 60, check_every_n_seconds=0.05, max_bucket_size=1)
+def build_models(settings: Settings, ledger: Ledger) -> Models:
+    """One ChatOpenAI per role against its configured endpoint.
 
-    gemini_limiter = limiter()
-    nvidia_limiter = limiter()
+    `ledger` is consumed by the LedgerHandlers wired onto the callbacks at T4;
+    one rate limiter is shared per endpoint so two roles on the same endpoint
+    share a single budget.
+    """
+    limiters = {
+        endpoint: InMemoryRateLimiter(
+            requests_per_second=settings.rate_limit_rpm / 60, check_every_n_seconds=0.05, max_bucket_size=1
+        )
+        for endpoint in ("cloud", "open")
+    }
 
-    def gemini(model: str) -> ChatGoogleGenerativeAI:
-        return ChatGoogleGenerativeAI(model=model, google_api_key=settings.gemini_api_key, rate_limiter=gemini_limiter, max_retries=1)
-
-    def nvidia(model: str) -> ChatNVIDIA:
-        return ChatNVIDIA(model=model, api_key=settings.nvidia_api_key, rate_limiter=nvidia_limiter)
+    def make(role: str) -> BaseChatModel:
+        endpoint = getattr(settings, f"{role}_endpoint")
+        return ChatOpenAI(
+            model=getattr(settings, f"{role}_model"),
+            base_url=settings.cloud_base_url if endpoint == "cloud" else settings.open_base_url,
+            api_key=settings.cloud_api_key if endpoint == "cloud" else settings.open_api_key,
+            rate_limiter=limiters[endpoint],
+            max_retries=1,
+            stream_usage=True,
+            callbacks=[],
+        )
 
     return Models(
-        planner=gemini(settings.gemini_planner_model).with_structured_output(PlannerDecision) | RunnableLambda(reject_none),
-        executor=gemini(settings.gemini_executor_model),
-        verifier=gemini(settings.gemini_verifier_model).with_structured_output(VerificationResult) | RunnableLambda(reject_none),
-        reporter=gemini(settings.gemini_reporter_model),
+        planner=make("planner").with_structured_output(PlannerDecision, method=settings.structured_method) | RunnableLambda(reject_none),
+        executor=make("executor"),
+        verifier=make("verifier").with_structured_output(VerificationResult, method=settings.structured_method) | RunnableLambda(reject_none),
+        reporter=make("reporter"),
     )
 
 

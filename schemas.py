@@ -8,14 +8,19 @@ from pydantic import BaseModel, Field, Json, model_validator
 
 
 class Settings(BaseModel):
-    gemini_api_key: str
-    gemini_planner_model: str
-    gemini_executor_model: str
-    gemini_verifier_model: str
-    gemini_reporter_model: str
-    nvidia_api_key: str
-    nvidia_planner_model: str
-    nvidia_reporter_model: str
+    cloud_base_url: str
+    cloud_api_key: str
+    open_base_url: str
+    open_api_key: str
+    structured_method: Literal["json_schema", "function_calling", "json_mode"]
+    planner_endpoint: Literal["cloud", "open"]
+    planner_model: str
+    executor_endpoint: Literal["cloud", "open"]
+    executor_model: str
+    verifier_endpoint: Literal["cloud", "open"]
+    verifier_model: str
+    reporter_endpoint: Literal["cloud", "open"]
+    reporter_model: str
     rate_limit_rpm: float
     llm_max_attempts: int
     retry_initial_seconds: float
