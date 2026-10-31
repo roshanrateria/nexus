@@ -192,6 +192,7 @@ class AgentState(TypedDict, total=False):
     browser_url: str
     planner_rounds: int
     local_retries: int
+    evidence_counter: int
     status: str
     final_assessment: str
     report_path: str
@@ -199,6 +200,7 @@ class AgentState(TypedDict, total=False):
 
 class ExecutorInput(TypedDict):
     current_step: str
+    run_id: str
 
 
 class ExecutorOutput(TypedDict):
@@ -208,6 +210,7 @@ class ExecutorOutput(TypedDict):
 
 class ExecutorState(TypedDict, total=False):
     current_step: str
+    run_id: str
     messages: Annotated[list[AnyMessage], add_messages]
     iterations: int
     observation: str

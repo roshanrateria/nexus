@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
@@ -228,6 +229,22 @@ def _fetch_robots(origin: str) -> urllib.robotparser.RobotFileParser | None:
             return parser
     except Exception:
         return None
+
+
+RUNS_DIR = "runs"
+_shot_lock = threading.Lock()
+_shot_counters: dict[str, int] = {}
+
+
+def save_shot(run_id: str, b64: str) -> str:
+    """Write a screenshot as runs/<run_id>/shots/<seq>.jpg; returns "<run_id>/<seq>.jpg"."""
+    with _shot_lock:
+        seq = _shot_counters.get(run_id, 0) + 1
+        _shot_counters[run_id] = seq
+    directory = Path(RUNS_DIR) / run_id / "shots"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{seq}.jpg").write_bytes(base64.b64decode(b64))
+    return f"{run_id}/{seq}.jpg"
 
 
 class BrowserSession:
@@ -704,7 +721,15 @@ def build_executor(settings: Settings, models: Models, browser: BrowserSession):
 
     async def observe(state: ExecutorState, writer: StreamWriter) -> dict:
         snapshot = await with_backoff("browser", browser.observe, writer, settings)
-        writer({"type": "observe", "iteration": state.get("iterations", 0), "url": snapshot.url, "title": snapshot.title})
+        writer(
+            {
+                "type": "observe",
+                "iteration": state.get("iterations", 0),
+                "url": snapshot.url,
+                "title": snapshot.title,
+                "shot": save_shot(state.get("run_id", "default"), snapshot.screenshot),
+            }
+        )
         return {"observation": snapshot.text, "screenshot": snapshot.screenshot}
 
     async def agent(state: ExecutorState, writer: StreamWriter) -> dict:
@@ -778,7 +803,7 @@ def render_history(history: list[dict]) -> str:
             verdict=prompts["verdict_complete"] if record["complete"] else prompts["verdict_incomplete"],
             assessment=record["assessment"],
             report=record["report"],
-            evidence=" ".join(f"- {e['summarized']}" for e in record["evidences"]) or prompts["no_evidence"],
+            evidence=" ".join((f"{e['id']}: " if e.get("id") else "") + e["summarized"] for e in record["evidences"]) or prompts["no_evidence"],
         )
         for number, record in enumerate(history, 1)
     )
@@ -895,6 +920,13 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
             local_retries += 1
             current_step = PROMPTS["executor"]["step"].format(instruction=step["instruction"], expected=step["expected_outcome"])
             current_step += f"\nPrevious attempt was NOT complete: {assessment}. Do not repeat failed actions; use an alternate approach."
+
+        record_shot = save_shot(state.get("run_id", "default"), snapshot.screenshot)
+        counter = state.get("evidence_counter", 0)
+        evidences = []
+        for evidence in valid_evidences:
+            counter += 1
+            evidences.append({**evidence.model_dump(), "id": f"E{counter}", "shot": record_shot})
         record = {
             "instruction": step["instruction"],
             "expected_outcome": step["expected_outcome"],
@@ -902,7 +934,8 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
             "verdict": verdict,
             "assessment": assessment,
             "report": state["executor_report"],
-            "evidences": [evidence.model_dump() for evidence in valid_evidences],
+            "evidences": evidences,
+            "shot": record_shot,
             "url": snapshot.url,
         }
         writer({"type": "verified", **record})
@@ -913,6 +946,7 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
             "history": [record],
             "browser_url": snapshot.url,
             "local_retries": local_retries,
+            "evidence_counter": counter,
             "plan": plan,
         }
         if current_step:
@@ -924,7 +958,15 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
         history = state.get("history", [])
         verdicts = PROMPTS["planner"]
         evidences = [evidence for record in history for evidence in record["evidences"]]
-        evidence_text = "\n".join(prompts["evidence_item"].format(number=number, **evidence) for number, evidence in enumerate(evidences, 1))
+        evidence_text = "\n".join(
+            prompts["evidence_item"].format(
+                id=evidence.get("id") or f"E{number}",
+                url=evidence["url"],
+                summarized=evidence["summarized"],
+                original_text=evidence["original_text"],
+            )
+            for number, evidence in enumerate(evidences, 1)
+        )
         plan_text = "\n".join(
             prompts["plan_item"].format(
                 number=number,

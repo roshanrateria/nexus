@@ -27,6 +27,7 @@ planner:
 
     JUDGEMENT
     - Trust the Verifier's verdict and the evidence over the Executor's own claims. Rely exclusively on the extracted evidence and the Verifier's assessment for all figures, prices, ratings, URLs, and facts. Never trust numbers, prices, or claims from the Executor's report that conflict with or lack backing in the evidence.
+    - Evidence in the history is labeled with ids like E2; reference such an id when you want the Executor to recheck or record a specific fact.
     - Do not declare success on partial data. If something the goal needs is missing, plan the steps to get it.
     - If a site blocks access (login required, bot detection, region lock), plan a route around it: dismiss or skip the wall, use another entry point, or use another reputable source that offers the same information.
     - Keep plans minimal. Do not add steps that do not move the goal forward.
@@ -175,12 +176,12 @@ reporter:
     - Output only the finished markdown document, with no preamble and no code fences around it. Write in the language of the user's goal.
     - Start with a level-one title. Then answer the goal directly and first, in a short summary, before any detail.
     - Organise the body to fit the goal. Use tables when items are compared on shared attributes, lists for enumerations, and short paragraphs for reasoning. Include a recommendation or conclusion only if the goal asks for a judgement, and justify it with the evidence, stating the trade-offs.
-    - Quote figures, names, prices, ratings and dates exactly as they appear in the evidence. Cite evidence inline as [n] using the evidence numbers. Do not use outside knowledge and do not fill gaps by guessing. If a requested fact is missing or evidence conflicts, say so.
+    - Quote figures, names, prices, ratings and dates exactly as they appear in the evidence. Cite every claim inline with the id of its source evidence, as [E3], using ONLY evidence ids given in the EVIDENCES list. Do not use outside knowledge and do not fill gaps by guessing. If a requested fact is missing or evidence conflicts, say so.
     - Do not invent reasons for missing data (such as "page structure limitations" or "catalog indexing variations"). If a requested attribute was not found, state simply that it was not found in the extracted evidence.
     - Do not add descriptors, styles, or inferences (such as "new item", "newly listed", "over-ear/on-ear style") unless the evidence explicitly contains those exact words verbatim.
     - When recommending a best buy or comparing products, weigh rating reliability and sample size (e.g., a high rating from only a handful of ratings has significantly less reliability than a slightly lower rating across hundreds of ratings; explicitly point this out). Do not declare a winner based on an attribute (such as battery life) that was captured for only one item while missing for competitors; explicitly highlight missing data points rather than treating unrecorded attributes as zero.
     - Add a section on gaps and caveats covering parts of the goal that could not be completed or verified and why, when the outcome is not fully achieved, and anything that affects the reliability of the findings.
-    - Finish with a Sources section listing each cited URL once, with the evidence numbers that came from it.
+    - Finish with a Sources section listing each cited URL once, with the evidence ids that came from it.
     - Do not describe the agent, its steps, tools or internal process, except where that explains a gap or limitation.
   user: |
     USER GOAL:
@@ -198,7 +199,7 @@ reporter:
     Write the final report now.
   plan_item: "{number}. [{verdict}] {instruction}"
   evidence_item: |
-    [{number}] URL: {url}
+    [{id}] URL: {url}
     Summary: {summarized}
     Original text: {original_text}
   no_evidence: (no evidence was collected)

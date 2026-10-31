@@ -108,6 +108,7 @@ function render(s) {
   cur.replaceChildren();
   if (c.instruction) cur.append(el('div', 'label', 'Instruction'), el('div', '', c.instruction));
   if (c.iteration !== undefined) cur.append(el('div', 'dim', 'State #' + c.iteration + ' · ' + (c.title || '')), el('div', 'dim mono', c.url || ''));
+  if (c.shot) cur.append(el('div', 'dim mono', 'shot: ' + c.shot));
   if (c.last_action) cur.append(el('div', 'mono', '▶ ' + c.last_action));
   if (c.report) cur.append(el('div', 'label', 'Executor report'), el('pre', '', c.report));
   if (!c.instruction) cur.append(el('div', 'dim', 'Idle'));
@@ -125,9 +126,9 @@ function render(s) {
     $('evcount').textContent = s.evidences.length;
     const ev = $('evidence');
     ev.replaceChildren();
-    s.evidences.forEach((e, i) => {
+    s.evidences.forEach((e) => {
       const d = el('details');
-      d.append(el('summary', '', '[' + (i + 1) + '] ' + e.summarized), el('div', 'dim mono', e.url), el('pre', '', e.original_text));
+      d.append(el('summary', '', '[' + (e.id || e.url) + '] ' + e.summarized), el('div', 'dim mono', e.url), el('pre', '', e.original_text));
       ev.append(d);
     });
   }
@@ -219,7 +220,7 @@ class Hub:
             )
             self.note("plan", f"Round {e['round']}: {e['status']}, {len(e['plan'])} step(s) planned. {e['thought']}")
         elif kind == "observe":
-            s["current"].update(iteration=e["iteration"], url=e["url"], title=e["title"])
+            s["current"].update(iteration=e["iteration"], url=e["url"], title=e["title"], shot=e.get("shot", ""))
         elif kind == "action":
             s["current"]["last_action"] = f"{e['name']}({json.dumps(e['args'], ensure_ascii=False)})"
             self.note("action", s["current"]["last_action"])
@@ -334,7 +335,7 @@ def show(console: Console, e: dict) -> None:
         if e["final_assessment"]:
             console.print(Panel(escape(e["final_assessment"]), title="Planner assessment", border_style="magenta"))
     elif kind == "observe":
-        console.print(f"[dim]state #{e['iteration']} · {escape(e['title'])} · {escape(e['url'])}[/]")
+        console.print(f"[dim]state #{e['iteration']} · {escape(e['title'])} · {escape(e['url'])} · {escape(e.get('shot', ''))}[/]")
     elif kind == "action":
         console.print(f"[blue]▶ {e['name']}[/] {escape(json.dumps(e['args'], ensure_ascii=False))}")
     elif kind == "action_result":
