@@ -27,6 +27,8 @@ class Settings(BaseModel):
     retry_max_seconds: float
     max_planner_rounds: int
     max_step_iterations: int
+    # Retry the same step this many times with a different approach before involving the planner.
+    max_local_retries: int = 2
     recursion_limit: int
     max_observation_chars: int
     max_page_text_chars: int
@@ -105,7 +107,14 @@ class Evidence(BaseModel):
 class VerificationResult(BaseModel):
     assessment: str = Field(description="What proves the step complete, or precisely what is missing or wrong and what to do differently")
     complete: bool
+    verdict: Literal["done", "retry", "replan"] = Field(description="done = the step is proven complete; retry = the same step can succeed with a different approach; replan = the step is impossible as written or the plan itself is wrong")
     evidences: list[Evidence] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_verdict(self) -> "VerificationResult":
+        if self.complete != (self.verdict == "done"):
+            raise ValueError('complete must be true exactly when verdict is "done"')
+        return self
 
 
 class EmptyArgs(BaseModel):
@@ -182,6 +191,7 @@ class AgentState(TypedDict, total=False):
     step_artifacts: str
     browser_url: str
     planner_rounds: int
+    local_retries: int
     status: str
     final_assessment: str
     report_path: str

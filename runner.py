@@ -230,8 +230,10 @@ class Hub:
         elif kind == "verified":
             s["history"].append(e)
             s["evidences"].extend(e["evidences"])
-            verdict = "Step verified" if e["complete"] else "Step NOT complete, planner will retry or re-plan"
+            verdict = {"done": "Step verified", "retry": "Step NOT complete, retrying locally", "replan": "Step NOT complete, escalating to planner"}[e["verdict"]]
             self.note("ok" if e["complete"] else "failed", f"{verdict}: {e['assessment']}")
+        elif kind == "escalation":
+            self.note("plan", f"Escalated to the planner: {e['reason']}")
         elif kind == "retry":
             self.note("retry", f"{e['role']} failed (attempt {e['attempt']}/{e['max']}): {e['error']}. Retrying in {e['wait']}s")
         elif kind == "budget":
@@ -340,9 +342,13 @@ def show(console: Console, e: dict) -> None:
     elif kind == "verified":
         if e["complete"]:
             console.print(f"[bold green]✓ Step verified[/] {escape(e['assessment'])}")
+        elif e["verdict"] == "retry":
+            console.print(f"[bold red]✗ Step NOT complete[/] {escape(e['assessment'])}\n[red]  Retrying the same step with a different approach[/]")
         else:
-            console.print(f"[bold red]✗ Step NOT complete[/] {escape(e['assessment'])}\n[red]  Handing back to the planner to retry or re-plan[/]")
+            console.print(f"[bold red]✗ Step NOT complete[/] {escape(e['assessment'])}\n[red]  Handing back to the planner to re-plan[/]")
         console.print(f"[dim]  {len(e['evidences'])} evidence(s) extracted[/]")
+    elif kind == "escalation":
+        console.print(f"[magenta]↯ Escalated to the planner: {escape(e['reason'])}[/]")
     elif kind == "retry":
         console.print(
             f"[yellow]⟳ {escape(e['role'])} failed (attempt {e['attempt']}/{e['max']}): {escape(e['error'])}\n  retrying in {e['wait']}s[/]"

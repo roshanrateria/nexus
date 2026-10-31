@@ -815,7 +815,7 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
                 "plan": plan,
             }
         )
-        update = {"plan": plan, "planner_rounds": rounds + 1, "status": decision.status, "final_assessment": decision.final_assessment}
+        update = {"plan": plan, "planner_rounds": rounds + 1, "status": decision.status, "final_assessment": decision.final_assessment, "local_retries": 0}
         if decision.status == "continue":
             first = decision.plan[0]
             step_text = PROMPTS["executor"]["step"].format(instruction=first.instruction, expected=first.expected_outcome)
@@ -855,17 +855,42 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
             ),
         ]
         result: VerificationResult = await with_backoff("verifier", lambda: models.verifier.ainvoke(messages), writer, settings)
+        verdict = result.verdict
+        plan = state["plan"]
+        local_retries = state.get("local_retries", 0)
+        current_step = None
+        if verdict == "done":
+            plan = plan[1:]
+            if plan:
+                current_step = PROMPTS["executor"]["step"].format(instruction=plan[0]["instruction"], expected=plan[0]["expected_outcome"])
+            local_retries = 0
+        elif verdict == "retry":
+            local_retries += 1
+            current_step = PROMPTS["executor"]["step"].format(instruction=step["instruction"], expected=step["expected_outcome"])
+            current_step += f"\nPrevious attempt was NOT complete: {result.assessment}. Do not repeat failed actions; use an alternate approach."
         record = {
             "instruction": step["instruction"],
             "expected_outcome": step["expected_outcome"],
             "complete": result.complete,
+            "verdict": verdict,
             "assessment": result.assessment,
             "report": state["executor_report"],
             "evidences": [evidence.model_dump() for evidence in result.evidences],
             "url": snapshot.url,
         }
         writer({"type": "verified", **record})
-        return {"history": [record], "browser_url": snapshot.url}
+        if verdict == "replan" or (verdict == "retry" and local_retries > settings.max_local_retries) or (verdict == "done" and not plan):
+            reason = "replan" if verdict == "replan" else ("retries_exhausted" if verdict == "retry" else "plan_empty")
+            writer({"type": "escalation", "reason": reason})
+        update = {
+            "history": [record],
+            "browser_url": snapshot.url,
+            "local_retries": local_retries,
+            "plan": plan,
+        }
+        if current_step:
+            update["current_step"] = current_step
+        return update
 
     async def reporter(state: AgentState, writer: StreamWriter) -> dict:
         prompts = PROMPTS["reporter"]
@@ -910,6 +935,14 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
         writer({"type": "finished", "status": state["status"], "path": str(path)})
         return {"report_path": str(path)}
 
+    def route_after_verifier(state: AgentState) -> Literal["executor", "planner"]:
+        last = state["history"][-1]
+        if last["verdict"] == "retry" and state.get("local_retries", 0) <= settings.max_local_retries:
+            return "executor"
+        if last["verdict"] == "done" and state["plan"]:
+            return "executor"
+        return "planner"
+
     graph = StateGraph(AgentState)
     graph.add_node("planner", planner)
     graph.add_node("executor", executor)
@@ -917,6 +950,6 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
     graph.add_node("reporter", reporter)
     graph.add_edge(START, "planner")
     graph.add_edge("executor", "verifier")
-    graph.add_edge("verifier", "planner")
+    graph.add_conditional_edges("verifier", route_after_verifier)
     graph.add_edge("reporter", END)
     return graph.compile(checkpointer=checkpointer, name="agentic_browser")
