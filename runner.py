@@ -234,6 +234,8 @@ class Hub:
             self.note("ok" if e["complete"] else "failed", f"{verdict}: {e['assessment']}")
         elif kind == "escalation":
             self.note("plan", f"Escalated to the planner: {e['reason']}")
+        elif kind == "evidence_check":
+            self.note("ok" if e["failed"] == 0 else "failed", f"Evidence check: {e['ok']} ok, {e['failed']} dropped")
         elif kind == "retry":
             self.note("retry", f"{e['role']} failed (attempt {e['attempt']}/{e['max']}): {e['error']}. Retrying in {e['wait']}s")
         elif kind == "budget":
@@ -349,6 +351,8 @@ def show(console: Console, e: dict) -> None:
         console.print(f"[dim]  {len(e['evidences'])} evidence(s) extracted[/]")
     elif kind == "escalation":
         console.print(f"[magenta]↯ Escalated to the planner: {escape(e['reason'])}[/]")
+    elif kind == "evidence_check":
+        console.print(f"[green]⌁ Evidence check: {e['ok']} ok, {e['failed']} dropped[/]" if e["failed"] == 0 else f"[red]⌁ Evidence check: {e['ok']} ok, {e['failed']} dropped[/]")
     elif kind == "retry":
         console.print(
             f"[yellow]⟳ {escape(e['role'])} failed (attempt {e['attempt']}/{e['max']}): {escape(e['error'])}\n  retrying in {e['wait']}s[/]"

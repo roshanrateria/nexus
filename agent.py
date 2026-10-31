@@ -546,6 +546,16 @@ def reject_none(value):
     return value
 
 
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip().casefold()
+
+
+def evidence_is_real(original_text: str, *sources: str) -> bool:
+    """True iff the (whitespace-normalized) excerpt appears verbatim in one source."""
+    needle = _norm(original_text)
+    return bool(needle) and any(needle in _norm(src) for src in sources)
+
+
 def require_action(message: AIMessage) -> AIMessage:
     if message.tool_calls or REPORT_RE.match(message.text):
         return message
@@ -855,9 +865,26 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
             ),
         ]
         result: VerificationResult = await with_backoff("verifier", lambda: models.verifier.ainvoke(messages), writer, settings)
+
+        # T3: deterministic evidence check -- the verifier never grades itself.
+        full_page_text = await with_backoff(
+            "browser",
+            lambda: browser.read_text(None, 0, False, settings.max_page_text_chars),
+            writer,
+            settings,
+        )
+        sources = [full_page_text, state.get("step_artifacts", "")]
+        valid_evidences = [evidence for evidence in result.evidences if evidence_is_real(evidence.original_text, *sources)]
+        evidence_failed = len(result.evidences) - len(valid_evidences)
+        writer({"type": "evidence_check", "ok": len(valid_evidences), "failed": evidence_failed})
+
         verdict = result.verdict
-        plan = state["plan"]
+        assessment = result.assessment
+        if verdict == "done" and (evidence_failed or not valid_evidences):
+            verdict = "retry"
+            assessment = "Evidence not found verbatim on the page: " + assessment
         local_retries = state.get("local_retries", 0)
+        plan = state["plan"]
         current_step = None
         if verdict == "done":
             plan = plan[1:]
@@ -867,15 +894,15 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
         elif verdict == "retry":
             local_retries += 1
             current_step = PROMPTS["executor"]["step"].format(instruction=step["instruction"], expected=step["expected_outcome"])
-            current_step += f"\nPrevious attempt was NOT complete: {result.assessment}. Do not repeat failed actions; use an alternate approach."
+            current_step += f"\nPrevious attempt was NOT complete: {assessment}. Do not repeat failed actions; use an alternate approach."
         record = {
             "instruction": step["instruction"],
             "expected_outcome": step["expected_outcome"],
-            "complete": result.complete,
+            "complete": verdict == "done",
             "verdict": verdict,
-            "assessment": result.assessment,
+            "assessment": assessment,
             "report": state["executor_report"],
-            "evidences": [evidence.model_dump() for evidence in result.evidences],
+            "evidences": [evidence.model_dump() for evidence in valid_evidences],
             "url": snapshot.url,
         }
         writer({"type": "verified", **record})
