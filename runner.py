@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import contextlib
 import json
+import mimetypes
 import queue
 import re
 import threading
@@ -10,7 +11,7 @@ import uuid
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import InMemorySaver
@@ -310,6 +311,30 @@ class RunControl:
 
 SHOTS_URL_RE = re.compile(r"^shots/([a-f0-9]{8})/(\d+)\.jpg$")
 
+# Next.js static export directory, served from the same process (below, see
+# make_handler). Missing it just falls back to the legacy inline dashboard.
+WEB_OUT = Path(__file__).resolve().parent / "web" / "out"
+
+# Explicit map keeps content types stable regardless of the Windows registry,
+# which mimetypes reads on this platform.
+STATIC_TYPES: dict[str, str] = {
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json",
+    ".txt": "text/plain; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+}
+
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
@@ -320,6 +345,8 @@ class Server(ThreadingHTTPServer):
 
 def make_handler(hub: Hub, control: RunControl):
     class Handler(BaseHTTPRequestHandler):
+        legacy_hint_shown = False
+
         def log_message(self, *args) -> None:
             return None
 
@@ -335,8 +362,12 @@ def make_handler(hub: Hub, control: RunControl):
                 self.wfile.write(body)
 
         def do_GET(self) -> None:
-            path = urlsplit(self.path).path.lstrip("/")
-            if path == "events":
+            path = unquote(urlsplit(self.path).path).lstrip("/")
+            if path in ("", "index.html"):
+                self.static("index.html")
+            elif path == "legacy":
+                self.legacy()
+            elif path == "events":
                 self.stream()
             elif path == "state":
                 with hub.lock:
@@ -351,7 +382,7 @@ def make_handler(hub: Hub, control: RunControl):
                 else:
                     self._send(404, "text/plain", b"not found")
             else:
-                self.page()
+                self.static(path)
 
         def do_HEAD(self) -> None:
             self._head = True
@@ -410,8 +441,33 @@ def make_handler(hub: Hub, control: RunControl):
             control.loop.call_soon_threadsafe(task.cancel)
             self._send(200, "application/json", b'{"ok": true}')
 
-        def page(self) -> None:
+        def legacy(self) -> None:
+            if not Handler.legacy_hint_shown:
+                print("Run: python scripts/build_ui.py")
+                Handler.legacy_hint_shown = True
             self._send(200, "text/html; charset=utf-8", DASHBOARD_HTML.encode("utf-8"))
+
+        def static(self, rel: str) -> None:
+            """Serve a file from web/out (Next.js export). Paths that escape
+            the directory, or simply do not exist, get a 404."""
+            if not (WEB_OUT / "index.html").is_file():
+                self.legacy()
+                return
+            try:
+                candidate = (WEB_OUT / rel).resolve()
+                candidate.relative_to(WEB_OUT.resolve())
+            except (OSError, ValueError):
+                self._send(404, "text/plain", b"not found")
+                return
+            if candidate.is_dir():
+                candidate = candidate / "index.html"
+            if not candidate.is_file():
+                self._send(404, "text/plain", b"not found")
+                return
+            ctype = STATIC_TYPES.get(candidate.suffix.lower())
+            if ctype is None:
+                ctype = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+            self._send(200, ctype, candidate.read_bytes())
 
         def shot(self, match) -> None:
             target = Path(RUNS_DIR) / match.group(1) / "shots" / f"{match.group(2)}.jpg"

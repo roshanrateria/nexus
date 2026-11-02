@@ -3,7 +3,9 @@
 checkpoints.sqlite*
 __pycache__/
 runs/
+reports/
 bench/results/
+web/out/
 .venv/
 node_modules/
 .next/
