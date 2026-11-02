@@ -313,18 +313,21 @@ class Server(ThreadingHTTPServer):
         return None
 
 
-def make_handler(hub: Hub):
+def make_handler(hub: Hub, control: RunControl):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args) -> None:
             return None
 
-        def _send(self, status: int, content_type: str, body: bytes) -> None:
+        def _send(self, status: int, content_type: str, body: bytes, extra: dict[str, str] | None = None) -> None:
             self.send_response(status)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            for key, value in (extra or {}).items():
+                self.send_header(key, value)
             self.end_headers()
-            self.wfile.write(body)
+            if not getattr(self, "_head", False):
+                self.wfile.write(body)
 
         def do_GET(self) -> None:
             path = urlsplit(self.path).path.lstrip("/")
@@ -334,6 +337,8 @@ def make_handler(hub: Hub):
                 with hub.lock:
                     body = json.dumps(hub.state).encode("utf-8")
                 self._send(200, "application/json", body)
+            elif path == "health":
+                self._send(200, "application/json", json.dumps({"ok": True, "busy": control.busy}).encode("utf-8"))
             elif path.startswith("shots/"):
                 match = SHOTS_URL_RE.match(path)
                 if match:
@@ -343,8 +348,62 @@ def make_handler(hub: Hub):
             else:
                 self.page()
 
+        def do_HEAD(self) -> None:
+            self._head = True
+            try:
+                self.do_GET()
+            finally:
+                self._head = False
+
         def do_OPTIONS(self) -> None:
-            self._send(204, "text/plain", b"")
+            self._send(
+                204,
+                "text/plain",
+                b"",
+                extra={"Access-Control-Allow-Methods": "POST, GET, HEAD, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"},
+            )
+
+        def do_POST(self) -> None:
+            path = urlsplit(self.path).path
+            if path == "/run":
+                self.run_goal()
+            elif path == "/cancel":
+                self.cancel_goal()
+            else:
+                self._send(404, "application/json", b'{"error": "not found"}')
+
+        def run_goal(self) -> None:
+            """Queue a goal for the run loop. The busy flag is flipped on the
+            loop side, so between the 202 and the actual start one more goal
+            could slip into the queue: runs simply stay sequential."""
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                data = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                self._send(400, "application/json", b'{"error": "body must be JSON: {\\"goal\\": ...}"}')
+                return
+            goal = data.get("goal") if isinstance(data, dict) else None
+            if not isinstance(goal, str) or not goal.strip():
+                self._send(400, "application/json", b'{"error": "goal must be a non-empty string"}')
+                return
+            goal = goal.strip()
+            if len(goal) > 2000:
+                self._send(400, "application/json", b'{"error": "goal must be 2000 characters or fewer"}')
+                return
+            if control.busy:
+                self._send(409, "application/json", b'{"error": "busy"}')
+                return
+            run_id = uuid.uuid4().hex[:8]
+            control.enqueue(goal, run_id)
+            self._send(202, "application/json", json.dumps({"run_id": run_id}).encode("utf-8"))
+
+        def cancel_goal(self) -> None:
+            task = control.task
+            if not control.busy or task is None or task.done():
+                self._send(409, "application/json", b'{"error": "idle"}')
+                return
+            control.loop.call_soon_threadsafe(task.cancel)
+            self._send(200, "application/json", b'{"ok": true}')
 
         def page(self) -> None:
             self._send(200, "text/html; charset=utf-8", DASHBOARD_HTML.encode("utf-8"))
@@ -375,16 +434,17 @@ def make_handler(hub: Hub):
 
 
 class Dashboard:
-    def __init__(self, settings: Settings, hub: Hub):
+    def __init__(self, settings: Settings, hub: Hub, control: RunControl):
         self.settings = settings
         self.hub = hub
+        self.control = control
 
     @property
     def url(self) -> str:
         return f"http://{self.settings.dashboard_host}:{self.settings.dashboard_port}"
 
     def __enter__(self) -> "Dashboard":
-        self.server = Server((self.settings.dashboard_host, self.settings.dashboard_port), make_handler(self.hub))
+        self.server = Server((self.settings.dashboard_host, self.settings.dashboard_port), make_handler(self.hub, self.control))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         return self
 
@@ -459,7 +519,7 @@ async def run(args: argparse.Namespace) -> None:
             saver = await stack.enter_async_context(AsyncSqliteSaver.from_conn_string(settings.checkpoint_db))
         else:
             saver = InMemorySaver()
-        dashboard = stack.enter_context(Dashboard(settings, hub))
+        dashboard = stack.enter_context(Dashboard(settings, hub, control))
         browser = await stack.enter_async_context(BrowserSession(settings))
         ledger = Ledger(on_change=lambda snapshot: hub.publish({"type": "ledger", "data": snapshot}))
         graph = build_graph(settings, build_models(settings, ledger), browser, saver)
