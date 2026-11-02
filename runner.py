@@ -249,9 +249,9 @@ class Hub:
             verdict = {"done": "Step verified", "retry": "Step NOT complete, retrying locally", "replan": "Step NOT complete, escalating to planner"}[e["verdict"]]
             self.note("ok" if e["complete"] else "failed", f"{verdict}: {e['assessment']}")
         elif kind == "escalation":
-            self.note("plan", f"Escalated to the planner: {e['reason']}")
+            self.note("plan", f"Escalated to planner: {e['reason']}")
         elif kind == "evidence_check":
-            self.note("ok" if e["failed"] == 0 else "failed", f"Evidence check: {e['ok']} ok, {e['failed']} dropped")
+            self.note("ok" if e["failed"] == 0 else "failed", f"Evidence check: {e['ok']} verified, {e['failed']} rejected")
         elif kind == "retry":
             self.note("retry", f"{e['role']} failed (attempt {e['attempt']}/{e['max']}): {e['error']}. Retrying in {e['wait']}s")
         elif kind == "budget":
@@ -266,6 +266,11 @@ class Hub:
             self.note("ok", f"Report saved to {e['path']}")
         elif kind == "ledger":
             s.update(ledger=e["data"])
+        elif kind == "error":
+            s.update(status="error", outcome="error", current={})
+            self.note("error", e["message"])
+        elif kind == "finished" and e["status"] == "cancelled":
+            s.update(status="done", outcome="cancelled", current={})
         elif kind == "finished":
             s.update(status="done", outcome=e["status"], current={})
 
@@ -489,9 +494,9 @@ def show(console: Console, e: dict) -> None:
             console.print(f"[bold red]✗ Step NOT complete[/] {escape(e['assessment'])}\n[red]  Handing back to the planner to re-plan[/]")
         console.print(f"[dim]  {len(e['evidences'])} evidence(s) extracted[/]")
     elif kind == "escalation":
-        console.print(f"[magenta]↯ Escalated to the planner: {escape(e['reason'])}[/]")
+        console.print(f"[magenta]↯ Escalated to planner: {escape(e['reason'])}[/]")
     elif kind == "evidence_check":
-        console.print(f"[green]⌁ Evidence check: {e['ok']} ok, {e['failed']} dropped[/]" if e["failed"] == 0 else f"[red]⌁ Evidence check: {e['ok']} ok, {e['failed']} dropped[/]")
+        console.print(f"[green]⌁ Evidence check: {e['ok']} verified, {e['failed']} rejected[/]" if e["failed"] == 0 else f"[red]⌁ Evidence check: {e['ok']} verified, {e['failed']} rejected[/]")
     elif kind == "retry":
         console.print(
             f"[yellow]⟳ {escape(e['role'])} failed (attempt {e['attempt']}/{e['max']}): {escape(e['error'])}\n  retrying in {e['wait']}s[/]"
@@ -506,6 +511,8 @@ def show(console: Console, e: dict) -> None:
         console.print(f"\n[bold green]Report saved to {escape(e['path'])}[/]")
     elif kind == "finished":
         console.print(f"[bold green]Finished · {e['status']}[/]")
+    elif kind == "error":
+        console.print(f"[bold red]✗ Run error: {escape(e['message'])}[/]")
 
 
 async def run(args: argparse.Namespace) -> None:
