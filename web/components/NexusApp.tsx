@@ -15,7 +15,8 @@ import { EvidenceCards } from "./EvidenceCards";
 import { KnowledgeGraph } from "./KnowledgeGraph";
 import { ReportPanel } from "./ReportPanel";
 import { Toasts } from "./Toasts";
-import { Skeleton } from "./Skeleton";
+import { EmptyState } from "./EmptyState";
+import { MissionComposer } from "./MissionComposer";
 import { EvidenceSheetProvider } from "./EvidenceSheet";
 
 const selectGoalString = (s: Parameters<typeof selectEvidences>[0]) => s.data?.goal ?? "";
@@ -52,9 +53,11 @@ export function NexusApp() {
             <EvidenceCards className="md:col-span-2 lg:col-span-4" />
             <KnowledgeGraph className="md:col-span-2 lg:col-span-4" />
             <ReportPanel className="md:col-span-2 lg:col-span-8" />
+            {/* Docked composer: queue another goal / cancel while a run is live. */}
+            <MissionComposer docked />
           </>
         ) : (
-          <Skeleton />
+          <EmptyState withComposer className="md:col-span-2 py-10 md:py-14 lg:col-span-12" />
         )}
       </main>
       <Toasts />

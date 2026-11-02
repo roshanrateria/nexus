@@ -80,7 +80,7 @@ export type Phase = "connecting" | "live" | "reconnecting" | "demo";
 
 export interface Toast {
   id: string;
-  kind: "escalation";
+  kind: "escalation" | "notice";
   title: string;
   detail: string;
 }

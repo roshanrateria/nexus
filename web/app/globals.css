@@ -442,6 +442,93 @@ body {
   box-shadow: 0 16px 40px -14px rgb(16 26 48 / 0.28);
 }
 
+/* ============ mission composer ============ */
+.composer:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--focus) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.composer-field {
+  width: 100%;
+  resize: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 2px 52px 10px 4px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.composer-field::placeholder {
+  color: var(--faint);
+}
+
+.counter {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--faint);
+  pointer-events: none;
+}
+.counter-over {
+  color: var(--bad);
+}
+
+/* Shimmering gradient Start button: hue already moves via the gradient's
+   animated white-glass sheen; press + magnetism come from the component. */
+.composer-start {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 999px;
+  padding: 9px 17px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  background: linear-gradient(115deg, var(--violet), var(--run) 55%, var(--cyan));
+  box-shadow: 0 10px 26px -12px color-mix(in srgb, var(--violet) 65%, transparent);
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+.composer-start:hover:not(:disabled) {
+  filter: brightness(1.08) saturate(1.05);
+}
+.composer-start:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.4) brightness(0.78);
+}
+.composer-start::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 42%, rgb(255 255 255 / 0.38) 50%, transparent 58%);
+  background-size: 250% 100%;
+  background-position: 115% 0;
+  animation: composer-shine 3s ease-in-out infinite;
+}
+.composer-start:disabled::after {
+  animation: none;
+  opacity: 0;
+}
+
+@keyframes composer-shine {
+  0% {
+    background-position: 115% 0;
+  }
+  55%,
+  100% {
+    background-position: -15% 0;
+  }
+}
+
 /* ============ markdown (report panel) ============ */
 .md {
   font-size: 14px;
@@ -587,7 +674,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .blob,
   .shimmer,
-  .caret::after {
+  .caret::after,
+  .composer-start::after {
     animation: none !important;
   }
 

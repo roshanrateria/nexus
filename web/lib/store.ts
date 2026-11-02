@@ -26,6 +26,7 @@ class NexusStore {
   private backoffMs = 600;
 
   private demoOn = false;
+  private demoGen = 0;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -141,9 +142,18 @@ class NexusStore {
     this.patch({ toasts: this.state.toasts.filter((t) => t.id !== id) });
   };
 
+  /** Push a one-off notice (e.g. composer 409/network errors). */
+  pushToast = (toast: Omit<Toast, "id">): void => {
+    const id = `notice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    this.pushToastInner({ ...toast, id });
+  };
+
   startDemo(): void {
-    if (typeof window === "undefined" || this.demoOn) return;
+    if (typeof window === "undefined") return;
     this.demoOn = true;
+    // Bumping the generation invalidates the previous replay's timers, so
+    // Start in demo mode cleanly restarts the scripted run.
+    const gen = ++this.demoGen;
     this.teardownSource();
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
@@ -152,9 +162,9 @@ class NexusStore {
     this.patch({ phase: "demo", data: null });
     void startDemoScript(
       (next) => {
-        if (this.demoOn) this.commit(next);
+        if (this.demoOn && gen === this.demoGen) this.commit(next);
       },
-      () => !this.demoOn
+      () => !this.demoOn || gen !== this.demoGen
     );
   }
 }

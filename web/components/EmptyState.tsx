@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { LogoGlyph } from "./ui";
+import { MissionComposer } from "./MissionComposer";
 import { useEnter } from "@/lib/motion";
 import { selectPhase } from "@/lib/selectors";
 import { useNexus } from "@/lib/useNexus";
@@ -14,7 +15,7 @@ const PHASE_TEXT: Record<string, string> = {
   live: "live feed",
 };
 
-export function EmptyState({ inFrame, className }: { inFrame?: boolean; className?: string }) {
+export function EmptyState({ inFrame, withComposer, className }: { inFrame?: boolean; withComposer?: boolean; className?: string }) {
   const phase = useNexus(selectPhase);
   const enter = useEnter({ duration: 0.4 });
   return (
@@ -38,10 +39,20 @@ export function EmptyState({ inFrame, className }: { inFrame?: boolean; classNam
       <p className="text-[12.5px] leading-snug text-(--dim)">
         Connection status: <span className="font-medium text-(--text)">{PHASE_TEXT[phase] ?? phase}</span>
       </p>
-      <p className="max-w-[300px] text-[11.5px] leading-snug text-(--faint)">
-        Start a run with <code className="font-mono">python runner.py &quot;…&quot;</code> — or watch the scripted
-        showcase at <code className="font-mono text-(--violet)">/?demo=1</code>.
-      </p>
+      {withComposer ? (
+        <>
+          <MissionComposer className="mt-1 w-full max-w-[620px] text-left" />
+          <p className="max-w-[420px] pt-1 text-[11.5px] leading-snug text-(--faint)">
+            Or start one from the CLI with <code className="font-mono">python runner.py &quot;…&quot;</code> — and watch the
+            scripted showcase at <code className="font-mono text-(--violet)">/?demo=1</code>.
+          </p>
+        </>
+      ) : (
+        <p className="max-w-[300px] text-[11.5px] leading-snug text-(--faint)">
+          Start a run with <code className="font-mono">python runner.py &quot;…&quot;</code> — or watch the scripted
+          showcase at <code className="font-mono text-(--violet)">/?demo=1</code>.
+        </p>
+      )}
     </motion.div>
   );
 }
