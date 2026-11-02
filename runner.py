@@ -598,19 +598,32 @@ async def run(args: argparse.Namespace) -> None:
         async def run_goal(goal: str, run_id: str, resumed: bool = False) -> None:
             """Drive one goal to completion. A failed or cancelled run
             publishes its outcome and comes back; the server never dies."""
+
+            def safe_show(event: dict) -> None:
+                try:
+                    show(console, event)
+                except Exception:
+                    pass  # a console hiccup (legacy encodings) must never abort a run
+
+            def log_line(renderable: object) -> None:
+                try:
+                    console.print(renderable)
+                except Exception:
+                    pass
+
             config = {"configurable": {"thread_id": run_id}, "recursion_limit": settings.recursion_limit}
             control.set_busy(True)
             try:
                 if resumed:
                     snapshot = await graph.aget_state(config)
                     if not snapshot.values:
-                        console.print(f"[red]No saved run with id {run_id}[/]")
+                        log_line(f"[red]No saved run with id {run_id}[/]")
                         return
                     if not snapshot.next:
-                        console.print(f"[green]Run {run_id} already finished. Report: {snapshot.values.get('report_path')}[/]")
+                        log_line(f"[green]Run {run_id} already finished. Report: {snapshot.values.get('report_path')}[/]")
                         return
                     hub.seed(snapshot.values)
-                    console.print(Panel(escape(snapshot.values["goal"]), title=f"Resuming run {run_id}", border_style="cyan"))
+                    log_line(Panel(escape(snapshot.values["goal"]), title=f"Resuming run {run_id}", border_style="cyan"))
                     if snapshot.values.get("browser_url"):
                         await browser.navigate(snapshot.values["browser_url"])
                     payload = None
@@ -618,18 +631,18 @@ async def run(args: argparse.Namespace) -> None:
                     payload = {"goal": goal, "run_id": run_id, "planner_rounds": 0, "history": [], "status": "running"}
                     event = {"type": "run", "goal": goal, "run_id": run_id}
                     hub.publish(event)
-                    show(console, event)
-                console.print(f"[dim]Run id {run_id}. If interrupted, continue with: python runner.py --resume {run_id}[/]")
+                    safe_show(event)
+                log_line(f"[dim]Run id {run_id}. If interrupted, continue with: python runner.py --resume {run_id}[/]")
                 async for _, event in graph.astream(payload, config, stream_mode="custom", subgraphs=True):
                     hub.publish(event)
-                    show(console, event)
+                    safe_show(event)
             except asyncio.CancelledError:
-                console.print(f"[yellow]Run {run_id} cancelled[/]")
+                log_line(f"[yellow]Run {run_id} cancelled[/]")
                 event = {"type": "finished", "status": "cancelled"}
                 hub.publish(event)
-                show(console, event)
+                safe_show(event)
             except Exception as error:
-                console.print(f"[bold red]✗ Run {run_id} failed: {type(error).__name__}: {error}[/]")
+                log_line(f"[bold red]✗ Run {run_id} failed: {type(error).__name__}: {error}[/]")
                 hub.publish({"type": "error", "message": f"{type(error).__name__}: {error}"})
             finally:
                 control.set_busy(False)
