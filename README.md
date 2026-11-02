@@ -34,24 +34,56 @@ flowchart LR
 
 ## Quickstart
 
-Prereqs: Python 3.13, Chromium (`playwright install chromium`).
+Prereqs: Python 3.13+, Node 20+ (for the UI build), Chromium (`playwright install chromium`).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate      # or .venv\Scripts\activate on Windows
-pip install langchain-core langchain-openai langgraph langgraph-checkpoint-sqlite \
-            playwright pydantic pyyaml tenacity python-dotenv rich
+pip install -r requirements.txt
 playwright install chromium
 cp .env.example .env          # then fill in real endpoint values and keys (never commit .env)
-python runner.py "Find the official height of the Eiffel Tower."
+python scripts/smoke_endpoints.py    # PASS/FAIL table: chat, image, tools, structured per role
+python scripts/build_ui.py           # installs the web UI and builds it into web/out
+python runner.py                     # one process: agent + API + UI on the printed URL
 ```
 
-The dashboard opens automatically (`DASHBOARD_OPEN=true`); state streams to `/events`, snapshots live at `/state`, screenshots are served from `/shots/<run_id>/<n>.jpg`. Interrupted runs resume with `python runner.py --resume <run_id>`.
+Open the printed URL (default <http://127.0.0.1:8765/>). Give the agent a goal in either of two ways:
+
+- **Composer UI** — type it in, press Ctrl/⌘+Enter to start, Cancel to stop;
+- **CLI** — `python runner.py "Find the official height of the Eiffel Tower."`: the run finishes, then the process stays in serve mode. Add `--once` to exit after the run (what benchmark harnesses want).
+
+State flows to the UI over SSE at `/events`; snapshots live at `/state`, screenshots at `/shots/<run_id>/<n>.jpg`. Interrupted runs continue with `python runner.py --resume <run_id>`. The recognized API:
+
+| Route | Purpose |
+|---|---|
+| `POST /run` `{"goal": ...}` | queue a goal → `202 {"run_id": ...}`; `409 {"error":"busy"}` while a run is active; `400` on bad input |
+| `POST /cancel` | cancel the active run (`409` when idle) |
+| `GET /health` | `{"ok": true, "busy": <bool>}` |
+| `GET /state`, `GET /events` | full state snapshot / SSE stream of the same state |
+
+A failing run publishes an `error` event and the process keeps serving — one bad goal never kills the server. If `web/out` is missing, `/` falls back to the legacy inline dashboard with a build hint.
 
 Endpoint credentials check without a full run:
 
 ```bash
 python scripts/smoke_endpoints.py    # PASS/FAIL table: chat, image, tools, structured per role
+python scripts/contract_check.py     # backend ⇄ TypeScript shapes + server routes, no browser/LLM
 ```
+
+### Dev mode (two terminals)
+
+Rebuild-free UI work against a live backend:
+
+```bash
+# terminal 1: backend (serves the API on 8765)
+python runner.py
+
+# terminal 2: Next.js dev server, pointed at the backend
+cd web
+# Windows PowerShell:  $env:NEXT_PUBLIC_NEXUS_URL="http://127.0.0.1:8765"
+NEXT_PUBLIC_NEXUS_URL=http://127.0.0.1:8765 npm run dev
+```
+
+Then open <http://localhost:3000>. Without `NEXT_PUBLIC_NEXUS_URL` the UI assumes same origin (the single-process case); demo replay still works with no backend at `/?demo=1`.
 
 ## What runs where
 
