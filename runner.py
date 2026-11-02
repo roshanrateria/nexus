@@ -154,7 +154,11 @@ class Hub:
         self.max_log = max_log
         self.lock = threading.Lock()
         self.subscribers: list[queue.Queue] = []
-        self.state: dict = {
+        self.state: dict = self._initial()
+
+    @staticmethod
+    def _initial() -> dict:
+        return {
             "goal": "",
             "run_id": "",
             "status": "starting",
@@ -169,6 +173,13 @@ class Hub:
             "report_path": "",
             "ledger": {},
         }
+
+    def reset(self) -> None:
+        """Restore the pre-run state for the next goal. Open SSE subscribers
+        are kept so a connected UI stays live and just sees the blank state."""
+        with self.lock:
+            self.state = self._initial()
+            self.broadcast()
 
     def note(self, kind: str, text: str) -> None:
         self.state["log"].append({"t": time.strftime("%H:%M:%S"), "kind": kind, "text": text})
@@ -257,6 +268,39 @@ class Hub:
             s.update(ledger=e["data"])
         elif kind == "finished":
             s.update(status="done", outcome=e["status"], current={})
+
+
+class RunControl:
+    """Hand-off between HTTP worker threads and the asyncio loop that runs goals.
+
+    The queue carries `(goal, run_id)` pairs; goals cross threads via
+    `loop.call_soon_threadsafe(queue.put_nowait, item)`. `busy` is a
+    lock-guarded flag flipped only from the loop side, so HTTP threads can
+    read it without racing the run loop.
+    """
+
+    def __init__(self) -> None:
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self.queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        self.task: asyncio.Task | None = None
+        self.lock = threading.Lock()
+        self._busy = False
+
+    @property
+    def busy(self) -> bool:
+        with self.lock:
+            return self._busy
+
+    def set_busy(self, value: bool) -> None:
+        with self.lock:
+            self._busy = value
+
+    def enqueue(self, goal: str, run_id: str) -> None:
+        item = (goal, run_id)
+        if self.loop is None:
+            self.queue.put_nowait(item)  # no live loop yet (scripted checks)
+        else:
+            self.loop.call_soon_threadsafe(self.queue.put_nowait, item)
 
 
 SHOTS_URL_RE = re.compile(r"^shots/([a-f0-9]{8})/(\d+)\.jpg$")
@@ -409,6 +453,7 @@ async def run(args: argparse.Namespace) -> None:
     settings = Settings.from_env()
     console = Console()
     hub = Hub(settings.dashboard_max_log)
+    control = RunControl()
     async with contextlib.AsyncExitStack() as stack:
         if args.checkpointer == "sqlite":
             saver = await stack.enter_async_context(AsyncSqliteSaver.from_conn_string(settings.checkpoint_db))
@@ -418,45 +463,99 @@ async def run(args: argparse.Namespace) -> None:
         browser = await stack.enter_async_context(BrowserSession(settings))
         ledger = Ledger(on_change=lambda snapshot: hub.publish({"type": "ledger", "data": snapshot}))
         graph = build_graph(settings, build_models(settings, ledger), browser, saver)
-        console.print(f"[cyan]Dashboard: {dashboard.url}[/]")
+        control.loop = asyncio.get_running_loop()
+
+        console.print(f"[cyan]Dashboard: {dashboard.url}/[/]")
         if settings.dashboard_open:
-            webbrowser.open(dashboard.url)
+            webbrowser.open(f"{dashboard.url}/")
+
+        async def run_goal(goal: str, run_id: str, resumed: bool = False) -> None:
+            """Drive one goal to completion. A failed or cancelled run
+            publishes its outcome and comes back; the server never dies."""
+            config = {"configurable": {"thread_id": run_id}, "recursion_limit": settings.recursion_limit}
+            control.set_busy(True)
+            try:
+                if resumed:
+                    snapshot = await graph.aget_state(config)
+                    if not snapshot.values:
+                        console.print(f"[red]No saved run with id {run_id}[/]")
+                        return
+                    if not snapshot.next:
+                        console.print(f"[green]Run {run_id} already finished. Report: {snapshot.values.get('report_path')}[/]")
+                        return
+                    hub.seed(snapshot.values)
+                    console.print(Panel(escape(snapshot.values["goal"]), title=f"Resuming run {run_id}", border_style="cyan"))
+                    if snapshot.values.get("browser_url"):
+                        await browser.navigate(snapshot.values["browser_url"])
+                    payload = None
+                else:
+                    payload = {"goal": goal, "run_id": run_id, "planner_rounds": 0, "history": [], "status": "running"}
+                    event = {"type": "run", "goal": goal, "run_id": run_id}
+                    hub.publish(event)
+                    show(console, event)
+                console.print(f"[dim]Run id {run_id}. If interrupted, continue with: python runner.py --resume {run_id}[/]")
+                async for _, event in graph.astream(payload, config, stream_mode="custom", subgraphs=True):
+                    hub.publish(event)
+                    show(console, event)
+            except asyncio.CancelledError:
+                console.print(f"[yellow]Run {run_id} cancelled[/]")
+                event = {"type": "finished", "status": "cancelled"}
+                hub.publish(event)
+                show(console, event)
+            except Exception as error:
+                console.print(f"[bold red]✗ Run {run_id} failed: {type(error).__name__}: {error}[/]")
+                hub.publish({"type": "error", "message": f"{type(error).__name__}: {error}"})
+            finally:
+                control.set_busy(False)
+                hub.reset()
+                ledger.reset()
+                with contextlib.suppress(Exception):
+                    await browser.navigate("about:blank")
+
+        async def run_queued(goal: str, run_id: str, resumed: bool) -> asyncio.Task:
+            task = asyncio.create_task(run_goal(goal, run_id, resumed))
+            control.task = task
+            try:
+                await task
+            finally:
+                control.task = None
+            return task
+
+        # Resume or CLI goal first (--once exits instead of serving).
         if args.resume:
-            run_id = args.resume
-            config = {"configurable": {"thread_id": run_id}, "recursion_limit": settings.recursion_limit}
-            snapshot = await graph.aget_state(config)
-            if not snapshot.values:
-                raise SystemExit(f"No saved run with id {run_id}")
-            if not snapshot.next:
-                console.print(f"[green]Run {run_id} already finished. Report: {snapshot.values.get('report_path')}[/]")
+            await run_queued("", args.resume, True)
+            if args.once:
                 return
-            hub.seed(snapshot.values)
-            console.print(Panel(escape(snapshot.values["goal"]), title=f"Resuming run {run_id}", border_style="cyan"))
-            if snapshot.values.get("browser_url"):
-                await browser.navigate(snapshot.values["browser_url"])
-            payload = None
-        else:
-            goal = args.goal or console.input("[bold cyan]Goal › [/]")
-            run_id = uuid.uuid4().hex[:8]
-            config = {"configurable": {"thread_id": run_id}, "recursion_limit": settings.recursion_limit}
-            payload = {"goal": goal, "run_id": run_id, "planner_rounds": 0, "history": [], "status": "running"}
-            event = {"type": "run", "goal": goal, "run_id": run_id}
-            hub.publish(event)
-            show(console, event)
-        console.print(f"[dim]Run id {run_id}. If interrupted, continue with: python runner.py --resume {run_id}[/]")
-        async for _, event in graph.astream(payload, config, stream_mode="custom", subgraphs=True):
-            hub.publish(event)
-            show(console, event)
+        elif args.goal:
+            await run_queued(args.goal, uuid.uuid4().hex[:8], False)
+            if args.once:
+                return
+
+        # Serve mode: park on the queue until a goal arrives; Ctrl+C exits.
+        try:
+            while True:
+                goal, run_id = await control.queue.get()
+                await run_queued(goal, run_id, False)
+        except asyncio.CancelledError:
+            task = control.task
+            if task is not None and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+            raise
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="General-purpose agentic browser")
-    parser.add_argument("goal", nargs="?", help="Goal in natural language; asked interactively when omitted")
+    parser.add_argument("goal", nargs="?", help="Goal in natural language; with no goal the process serves queued goals")
     parser.add_argument("--resume", metavar="RUN_ID", help="Continue an interrupted run from its last checkpoint")
+    parser.add_argument("--once", action="store_true", help="Exit after the CLI goal or resume instead of staying in serve mode")
     parser.add_argument("--checkpointer", choices=["sqlite", "memory"], default="sqlite", help="sqlite survives restarts, memory lives only for this process")
     args = parser.parse_args()
     if args.resume and args.checkpointer == "memory":
         parser.error("--resume needs the sqlite checkpointer")
+    if args.once and not args.goal and not args.resume:
+        parser.error("--once needs a goal or --resume")
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(run(args))
 

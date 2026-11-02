@@ -51,6 +51,15 @@ class Ledger:
             self._bump(self._by_role, role, {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})
         self._emit()
 
+    def reset(self) -> None:
+        """Zero every counter for the next run and emit a fresh snapshot."""
+        with self._lock:
+            self._by_endpoint.clear()
+            self._by_role.clear()
+            self._planner_calls = 0
+            self._last_emit = 0.0
+        self._emit()
+
     def snapshot(self) -> dict:
         with self._lock:
             cloud = {**self._blank(), **dict(self._by_endpoint.get("cloud", {}))}
