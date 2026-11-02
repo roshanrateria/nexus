@@ -245,8 +245,11 @@ class Hub:
             s["current"]["report"] = e["report"]
             self.note("action", "Executor reported back")
         elif kind == "verified":
-            s["history"].append(e)
-            s["evidences"].extend(e["evidences"])
+            # History records keep the exact documented shape (no event
+            # metadata), matching what resume seeds from the checkpoint.
+            record = {key: value for key, value in e.items() if key != "type"}
+            s["history"].append(record)
+            s["evidences"].extend(record["evidences"])
             verdict = {"done": "Step verified", "retry": "Step NOT complete, retrying locally", "replan": "Step NOT complete, escalating to planner"}[e["verdict"]]
             self.note("ok" if e["complete"] else "failed", f"{verdict}: {e['assessment']}")
         elif kind == "escalation":
