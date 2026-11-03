@@ -3,6 +3,7 @@ import base64
 import json
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
@@ -563,8 +564,24 @@ def reject_none(value):
     return value
 
 
+# Typography folding for verbatim evidence matching: a quote must survive
+# curly quotes, dashes, NBSP and zero-width characters the page throws at us.
+_CHAR_MAP = {
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u2032": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"', "\u2033": '"',
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-",
+    "\u2015": "-", "\u2212": "-", "\ufe63": "-", "\u2043": "-",
+    "\u00a0": " ", "\u202f": " ", "\u2007": " ", "\u2029": " ", "\u2028": " ",
+    "\u200b": "", "\u200c": "", "\u200d": "", "\ufeff": "", "\u00ad": "",
+}
+_CHAR_TABLE = str.maketrans(_CHAR_MAP)
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip().casefold()
+    """Casefold, collapse whitespace and fold typography so verbatim checks are
+    stable across copy differences: NFKC, curly quotes -> straight, en/em dash
+    and minus -> "-", NBSP -> space, zero-width characters -> empty."""
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", s).translate(_CHAR_TABLE)).strip().casefold()
 
 
 def evidence_is_real(original_text: str, *sources: str) -> bool:
@@ -817,7 +834,10 @@ def build_executor(settings: Settings, models: Models, browser: BrowserSession):
         return {
             "messages": [message],
             "executor_report": report,
+            # Give the verifier the DOM-extracted snapshot text as an evidence
+            # source: it contains aria-labels/hrefs/value text that innerText lacks.
             "step_artifacts": collect_artifacts(state.get("messages", []), tools_by_name, settings.max_artifact_chars),
+            "observation": state.get("observation", ""),
         }
 
     async def act(state: ExecutorState, writer: StreamWriter, config: RunnableConfig) -> dict:
@@ -945,16 +965,25 @@ def build_graph(settings: Settings, models: Models, browser: BrowserSession, che
         result: VerificationResult = await with_backoff("verifier", lambda: models.verifier.ainvoke(messages), writer, settings)
 
         # T3: deterministic evidence check -- the verifier never grades itself.
+        # Sources: the DOM verbatim page text, the executor's artifacts, and the
+        # DOM-extracted observation text (aria-labels/hrefs not in innerText).
         full_page_text = await with_backoff(
             "browser",
             lambda: browser.read_text(None, 0, False, settings.max_page_text_chars),
             writer,
             settings,
         )
-        sources = [full_page_text, state.get("step_artifacts", "")]
-        valid_evidences = [evidence for evidence in result.evidences if evidence_is_real(evidence.original_text, *sources)]
+        sources = [full_page_text, state.get("step_artifacts", ""), state.get("observation", "")]
+        valid_evidences: list = []
+        rejected_preview: list[str] = []
+        for evidence in result.evidences:
+            if evidence_is_real(evidence.original_text, *sources):
+                valid_evidences.append(evidence)
+            else:
+                # First 80 characters make the rejection debuggable in the hub log.
+                rejected_preview.append(evidence.original_text[:80])
         evidence_failed = len(result.evidences) - len(valid_evidences)
-        writer({"type": "evidence_check", "ok": len(valid_evidences), "failed": evidence_failed})
+        writer({"type": "evidence_check", "ok": len(valid_evidences), "failed": evidence_failed, "rejected": rejected_preview})
 
         verdict = result.verdict
         assessment = result.assessment

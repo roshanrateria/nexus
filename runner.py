@@ -264,7 +264,9 @@ class Hub:
         elif kind == "escalation":
             self.note("plan", f"Escalated to planner: {e['reason']}")
         elif kind == "evidence_check":
-            self.note("ok" if e["failed"] == 0 else "failed", f"Evidence check: {e['ok']} verified, {e['failed']} rejected")
+            rejected = e.get("rejected") or []
+            debug_hint = f" e.g. {rejected[0]!r}" if rejected else ""
+            self.note("ok" if e["failed"] == 0 else "failed", f"Evidence check: {e['ok']} verified, {e['failed']} rejected{debug_hint}")
         elif kind == "retry":
             self.note("retry", f"{e['role']} failed (attempt {e['attempt']}/{e['max']}): {e['error']}. Retrying in {e['wait']}s")
         elif kind == "budget":
@@ -565,6 +567,8 @@ def show(console: Console, e: dict) -> None:
         console.print(f"[magenta]↯ Escalated to planner: {escape(e['reason'])}[/]")
     elif kind == "evidence_check":
         console.print(f"[green]⌁ Evidence check: {e['ok']} verified, {e['failed']} rejected[/]" if e["failed"] == 0 else f"[red]⌁ Evidence check: {e['ok']} verified, {e['failed']} rejected[/]")
+        if e.get("rejected"):
+            console.print(f"[dim]  rejected quote previews: {[preview[:80] for preview in e['rejected']]}[/]")
     elif kind == "retry":
         console.print(
             f"[yellow]⟳ {escape(e['role'])} failed (attempt {e['attempt']}/{e['max']}): {escape(e['error'])}\n  retrying in {e['wait']}s[/]"

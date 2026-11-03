@@ -234,6 +234,7 @@ class AgentState(TypedDict, total=False):
     status: str
     final_assessment: str
     report_path: str
+    observation: str
 
 
 class ExecutorInput(TypedDict):
@@ -244,6 +245,7 @@ class ExecutorInput(TypedDict):
 class ExecutorOutput(TypedDict):
     executor_report: str
     step_artifacts: str
+    observation: str
 
 
 class ExecutorState(TypedDict, total=False):
