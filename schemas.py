@@ -95,7 +95,11 @@ class Settings(BaseModel):
         values: dict[str, object] = {}
         for name in cls.model_fields:
             raw = os.environ.get(name.upper())
-            values[name] = raw if raw is not None else cls.model_fields[name].get_default()
+            if raw is not None:
+                # Env values are strings; pydantic parses them, including the
+                # Json[...] browser fields. Missing keys fall back to the
+                # field defaults natively (no re-validation of defaults).
+                values[name] = raw
         if not os.environ.get("MODEL_API_KEY", "").strip():
             sys.exit("MODEL_API_KEY is missing. Create a key at dev.meta.ai (API keys) and add MODEL_API_KEY=... to .env")
         return cls(**values)
