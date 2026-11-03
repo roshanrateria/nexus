@@ -1,80 +1,103 @@
 import operator
 import os
+import sys
 from typing import Annotated, Literal, Optional, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field, Json, model_validator
 
+ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh", "max"]
+
 
 class Settings(BaseModel):
-    cloud_base_url: str
-    cloud_api_key: str
-    open_base_url: str
-    open_api_key: str
-    structured_method: Literal["json_schema", "function_calling", "json_mode"]
-    planner_endpoint: Literal["cloud", "open"]
-    planner_model: str
-    executor_endpoint: Literal["cloud", "open"]
-    executor_model: str
-    verifier_endpoint: Literal["cloud", "open"]
-    verifier_model: str
-    reporter_endpoint: Literal["cloud", "open"]
-    reporter_model: str
-    rate_limit_rpm: float
-    llm_max_attempts: int
-    retry_initial_seconds: float
-    retry_max_seconds: float
-    max_planner_rounds: int
-    max_step_iterations: int
+    """Everything runs on ONE secret: MODEL_API_KEY for the Meta Model API.
+
+    Every field has a code default except model_api_key, so .env only needs the
+    key; all other values stay optional overrides. Baseten's optional
+    BASETEN_API_KEY enables hybrid mode (open-weights executor + verifier).
+    """
+
+    # --- Credentials and mode ---
+    model_api_key: str
+    baseten_api_key: str = ""
+    nexus_mode: Literal["auto", "hybrid", "cloud"] = "auto"
+
+    # --- OpenAI SDK behavior ---
+    structured_method: Literal["json_schema", "function_calling", "json_mode"] = "json_schema"
+    rate_limit_rpm: float = 300
+
+    # --- Per-role model settings (roles are mapped to endpoints in agent.py) ---
+    planner_model: str = "muse-spark-1.3"
+    planner_reasoning_effort: ReasoningEffort = "high"
+    planner_max_tokens: int = 8192
+    executor_model: str = "muse-spark-1.3"
+    executor_reasoning_effort: ReasoningEffort = "low"
+    executor_max_tokens: int = 4096
+    verifier_model: str = "muse-spark-1.3"
+    verifier_reasoning_effort: ReasoningEffort = "low"
+    verifier_max_tokens: int = 4096
+    reporter_model: str = "muse-spark-1.3"
+    reporter_reasoning_effort: ReasoningEffort = "medium"
+    reporter_max_tokens: int = 8192
+
+    # --- Rate limiting and retry ---
+    llm_max_attempts: int = 6
+    retry_initial_seconds: float = 2
+    retry_max_seconds: float = 60
+
+    # --- Budgets ---
+    max_planner_rounds: int = 40
+    max_step_iterations: int = 25
     # Retry the same step this many times with a different approach before involving the planner.
     max_local_retries: int = 2
-    recursion_limit: int
-    max_observation_chars: int
-    max_page_text_chars: int
-    max_artifact_chars: int
-    max_links: int
-    verifier_page_text_chars: int
-    event_text_chars: int
-    observation_viewport_margin: int
-    screenshot_quality: int
-    action_timeout_ms: int
-    navigation_timeout_ms: int
-    settle_ms: int
-    typing_delay_ms: int
-    browser_headless: bool
-    browser_channel: str
-    browser_profile_dir: str
-    browser_viewport_width: int
-    browser_viewport_height: int
-    browser_locale: str
-    browser_timezone: str
-    browser_extra_headers: Json[dict[str, str]]
-    browser_launch_args: Json[list[str]]
-    checkpoint_db: str
-    reports_dir: str
-    dashboard_host: str
-    dashboard_port: int
-    dashboard_open: bool
-    dashboard_max_log: int
+    recursion_limit: int = 10000
+
+    # --- Observation and text limits ---
+    max_observation_chars: int = 12000
+    max_page_text_chars: int = 15000
+    max_artifact_chars: int = 40000
+    max_links: int = 60
+    verifier_page_text_chars: int = 12000
+    event_text_chars: int = 300
+
+    # --- Browser ---
+    observation_viewport_margin: int = 200
+    screenshot_quality: int = 60
+    action_timeout_ms: int = 10000
+    navigation_timeout_ms: int = 45000
+    settle_ms: int = 800
+    typing_delay_ms: int = 40
+    browser_headless: bool = False
+    browser_channel: str = "chrome"
+    browser_profile_dir: str = ".browser_profile_agent"
+    browser_viewport_width: int = 1366
+    browser_viewport_height: int = 800
+    browser_locale: str = "en-IN"
+    browser_timezone: str = "Asia/Kolkata"
+    browser_extra_headers: Json[dict[str, str]] = {}
+    browser_launch_args: Json[list[str]] = []
+
+    # --- Storage and dashboard ---
+    checkpoint_db: str = "checkpoints.sqlite"
+    reports_dir: str = "reports"
+    dashboard_host: str = "127.0.0.1"
+    dashboard_port: int = 8765
+    dashboard_open: bool = True
+    dashboard_max_log: int = 300
+
+    # --- Tool gating ---
     allow_run_javascript: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
+        """Override code defaults with only the env vars that are actually set."""
         values: dict[str, object] = {}
-        missing = []
         for name in cls.model_fields:
             raw = os.environ.get(name.upper())
-            if raw is None:
-                field = cls.model_fields[name]
-                if field.is_required():
-                    missing.append(name.upper())
-                else:
-                    values[name] = field.get_default()
-            else:
-                values[name] = raw
-        if missing:
-            raise KeyError(f"missing required environment variables: {', '.join(missing)}")
+            values[name] = raw if raw is not None else cls.model_fields[name].get_default()
+        if not values.get("model_api_key"):
+            sys.exit("MODEL_API_KEY is missing. Create a key at dev.meta.ai (API keys) and add MODEL_API_KEY=... to .env")
         return cls(**values)
 
 

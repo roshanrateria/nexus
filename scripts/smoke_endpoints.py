@@ -24,6 +24,7 @@ from langchain_openai import ChatOpenAI
 from rich.console import Console
 from rich.table import Table
 
+from agent import META_BASE_URL
 from schemas import PlannerDecision, Settings
 
 PNG_1PX = (
@@ -74,12 +75,11 @@ def structured_check(llm: ChatOpenAI) -> str:
 
 
 def make_llm(role: str, settings: Settings) -> ChatOpenAI:
-    endpoint = getattr(settings, f"{role}_endpoint")
-    is_cloud = endpoint == "cloud"
     return ChatOpenAI(
         model=getattr(settings, f"{role}_model"),
-        base_url=settings.cloud_base_url if is_cloud else settings.open_base_url,
-        api_key=settings.cloud_api_key if is_cloud else settings.open_api_key,
+        base_url=META_BASE_URL,
+        api_key=settings.model_api_key,
+        max_tokens=getattr(settings, f"{role}_max_tokens"),
         max_retries=1,
         stream_usage=True,
     )
@@ -104,9 +104,8 @@ def main() -> None:
         table.add_column(column, overflow="fold")
     failed = 0
     for role in ROLES:
-        endpoint = getattr(settings, f"{role}_endpoint")
         model = getattr(settings, f"{role}_model")
-        label = f"{role} ({endpoint}) {model}"
+        label = f"{role} (meta) {model}"
         llm = make_llm(role, settings)
         for name, check in CHECKS:
             try:

@@ -585,12 +585,15 @@ def require_report(message: AIMessage) -> AIMessage:
     raise ValueError("the final report must start with STATUS")
 
 
+META_BASE_URL = "https://api.meta.ai/v1"
+
+
 def build_models(settings: Settings, ledger: Ledger) -> Models:
-    """One ChatOpenAI per role against its configured endpoint.
+    """One ChatOpenAI per role against the Meta Model API.
 
     Every role gets a LedgerHandler counting what leaves the machine; planner
-    and reporter handlers are ALWAYS text_only. One rate limiter is shared per
-    endpoint so two roles on the same endpoint share a single budget.
+    and reporter handlers are ALWAYS text_only. All four roles share one
+    endpoint budget (rate_limit_rpm).
     """
     limiters = {
         endpoint: InMemoryRateLimiter(
@@ -600,11 +603,13 @@ def build_models(settings: Settings, ledger: Ledger) -> Models:
     }
 
     def make(role: str) -> BaseChatModel:
-        endpoint = getattr(settings, f"{role}_endpoint")
+        endpoint = "cloud"  # the one endpoint for now: the Meta Model API
         return ChatOpenAI(
             model=getattr(settings, f"{role}_model"),
-            base_url=settings.cloud_base_url if endpoint == "cloud" else settings.open_base_url,
-            api_key=settings.cloud_api_key if endpoint == "cloud" else settings.open_api_key,
+            base_url=META_BASE_URL,
+            api_key=settings.model_api_key,
+            max_tokens=getattr(settings, f"{role}_max_tokens"),
+            reasoning_effort=getattr(settings, f"{role}_reasoning_effort"),
             rate_limiter=limiters[endpoint],
             max_retries=1,
             stream_usage=True,
