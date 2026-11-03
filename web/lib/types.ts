@@ -31,6 +31,8 @@ export interface Bucket {
   calls: number;
   prompt_tokens: number;
   completion_tokens: number;
+  /** Meta prompt-cache hits (input_token_details), 0 or absent when none. */
+  cached_tokens?: number;
   bytes_out: number;
   images_out: number;
 }
@@ -41,6 +43,8 @@ export interface Ledger {
   by_role: Record<string, Bucket>;
   planner_calls: number;
   open_token_share: number;
+  /** Billed Meta Model API spend (USD); null/absent means no billed calls yet. */
+  cost_usd?: number;
 }
 
 export interface CurrentState {

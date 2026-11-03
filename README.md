@@ -1,6 +1,6 @@
 # Lumen — cloud brain, open-weights hands.
 
-A hierarchical, autonomous browser agent (LangGraph + Playwright) whose thinking lives on a hosted cloud model, whose hands and eyes are open-weights models, and whose Privacy Ledger proves which endpoint saw what. The planner and reporter never see a single pixel; the executor and verifier see screenshots but never leave the open-weights endpoint.
+A hierarchical, autonomous browser agent (LangGraph + Playwright) that runs with ONE secret: `MODEL_API_KEY` for the Meta Model API. In **cloud-only** mode every role runs on Meta's `muse-spark-1.3`; with the optional `BASETEN_API_KEY` it becomes **hybrid**: planner and reporter stay text-only on Meta, while executor and verifier see screenshots through the open-weights `meta-models/muse-spark-open-1026` on Baseten. The Privacy Ledger proves which endpoint saw what — and now what it cost.
 
 ```
 Cloud brain. Open-weights hands.
@@ -11,11 +11,11 @@ Cloud brain. Open-weights hands.
 ```mermaid
 flowchart LR
     G([goal]) --> P
-    subgraph CLOUD ["Text-only cloud LLM — never receives images"]
+    subgraph CLOUD ["Meta Model API — muse-spark-1.3, never receives images"]
         P[Planner]
         R[Reporter]
     end
-    subgraph OPEN ["Open-weights VLM on an OpenAI-compatible endpoint"]
+    subgraph OPEN ["Open-weights VLM on Baseten (hybrid mode)"]
         X[Executor<br>drives real Chromium]
         V[Verifier<br>+ deterministic evidence check]
     end
@@ -27,10 +27,10 @@ flowchart LR
     P -->|"goal complete"| R
 ```
 
-- **Planner** and **Reporter** run on the cloud model and are *always* text-only. A callback handler raises `PrivacyViolation` the instant any image part is about to leave — their instructions are open-weights-blocked by construction, not by convention.
-- **Executor** and **Verifier** run the open-weights VLM. The verifier judges steps from raw page text plus evidence and emits one of three verdicts: `done`, `retry`, `replan`. Retries stay local (executor↔verifier) and only escalate to the planner when the retry budget is exhausted, the step is impossible, or the plan ends.
-- **Deterministic evidence check**: no model grades itself. Every claimed evidence excerpt is re-checked in code against verbatim page text; unprovable claims are dropped and a `done` becomes a `retry`.
-- **Privacy Ledger** (`ledger.py`) counts every LLM call: bytes out, tokens, and above all *images out*, per endpoint and per role. Every call to the cloud endpoint from the planner or reporter is provably text.
+- **Planner** and **Reporter** run on the Meta Model API and are *always* text-only. A callback handler raises `PrivacyViolation` the instant any image part is about to leave — their instructions are screenshot-blocked by construction, not by convention.
+- **Executor** and **Verifier** see screenshots. In hybrid mode they run the open-weights model on Baseten so page pixels never leave to Meta; in cloud-only mode they run on the Meta Model API. The verifier judges steps from raw page text plus evidence and emits one of three verdicts: `done`, `retry`, `replan`. Retries stay local (executor↔verifier) and only escalate to the planner when the retry budget is exhausted, the step is impossible, or the plan ends.
+- **Deterministic evidence check**: no model grades itself. Every claimed evidence excerpt is re-checked in code against verbatim page text (NFKC + typography folding: curly quotes, dashes, NBSP and zero-width characters are normalized before matching); unprovable claims are dropped and a `done` becomes a `retry`.
+- **Privacy Ledger** (`ledger.py`) counts every LLM call: bytes out, tokens (including cached tokens), images out per endpoint and role — plus the billed `cost_usd` for the Meta endpoint (the open-weights endpoint runs on Baseten credits, so it never adds billed cost).
 
 ## Quickstart
 
@@ -40,11 +40,13 @@ Prereqs: Python 3.13+, Node 20+ (for the UI build), Chromium (`playwright instal
 python -m venv .venv && source .venv/bin/activate      # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 playwright install chromium
-cp .env.example .env          # then fill in real endpoint values and keys (never commit .env)
-python scripts/smoke_endpoints.py    # PASS/FAIL table: chat, image, tools, structured per role
+cp .env.example .env          # put your ONE key in .env: MODEL_API_KEY=... (never commit .env)
+python scripts/smoke_endpoints.py    # prints the resolved mode, then a PASS/FAIL table: chat, image (where allowed), tools, structured per role
 python scripts/build_ui.py           # installs the web UI and builds it into web/out
 python runner.py                     # one process: agent + API + UI on the printed URL
 ```
+
+`runner.py` preflights the key against `GET https://api.meta.ai/v1/models` at startup: a 401 exits with guidance, network trouble only warns. The active mode is printed in a startup banner, e.g. `Mode: HYBRID | planner+reporter -> Meta Spark | executor+verifier -> Baseten`.
 
 Open the printed URL (default <http://127.0.0.1:8765/>). Give the agent a goal in either of two ways:
 
@@ -62,12 +64,26 @@ State flows to the UI over SSE at `/events`; snapshots live at `/state`, screens
 
 A failing run publishes an `error` event and the process keeps serving — one bad goal never kills the server. If `web/out` is missing, `/` falls back to the legacy inline dashboard with a build hint.
 
-Endpoint credentials check without a full run:
+Endpoint and contract checks without a full run:
 
 ```bash
-python scripts/smoke_endpoints.py    # PASS/FAIL table: chat, image, tools, structured per role
+python scripts/smoke_endpoints.py    # resolved mode + PASS/FAIL: chat, image (where allowed), tools, structured per role
 python scripts/contract_check.py     # backend ⇄ TypeScript shapes + server routes, no browser/LLM
+python scripts/test_evidence.py      # 8 verbatim evidence-matching cases, no browser/LLM
 ```
+
+## Modes
+
+`NEXUS_MODE` in `.env` maps the four roles to endpoints (default `auto` = hybrid when `BASETEN_API_KEY` is set, else cloud-only):
+
+| Mode | Planner | Executor | Verifier | Reporter | Needs |
+|---|---|---|---|---|---|
+| `CLOUD-ONLY` | Meta muse-spark-1.3 (text-only) | Meta muse-spark-1.3 | Meta muse-spark-1.3 | Meta muse-spark-1.3 (text-only) | `MODEL_API_KEY` |
+| `HYBRID` | Meta muse-spark-1.3 (text-only) | Baseten `meta-models/muse-spark-open-1026` | Baseten `meta-models/muse-spark-open-1026` | Meta muse-spark-1.3 (text-only) | `MODEL_API_KEY` + `BASETEN_API_KEY` |
+
+Screenshots are processed by the Meta Model API in cloud-only mode and by the open-weights Baseten model in hybrid mode. Reasoning effort (`minimal|low|medium|high|xhigh|max`; `"none"` is rejected by the API) is only sent to the Meta endpoint. Never use `*-contributor` models (see the warning below). Profiles switch the whole stack in one shot: `profiles/hybrid.env`, `profiles/all_cloud.env`.
+
+> **Warning — Contributor mode**: with Contributor mode, Meta may train on your prompts and screenshots. `*-contributor` model ids are therefore rejected at startup unless `ALLOW_CONTRIBUTOR=true` is set — keep it unset.
 
 ### Dev mode (two terminals)
 
@@ -85,31 +101,22 @@ NEXT_PUBLIC_NEXUS_URL=http://127.0.0.1:8765 npm run dev
 
 Then open <http://localhost:3000>. Without `NEXT_PUBLIC_NEXUS_URL` the UI assumes same origin (the single-process case); demo replay still works with no backend at `/?demo=1`.
 
-## What runs where
-
-| Role | Endpoint (hybrid profile) | Structured output | Sees screenshots |
-|---|---|---|---|
-| planner | cloud | yes (`json_schema`/`function_calling`/`json_mode`) | never (enforced) |
-| executor | open | — | yes |
-| verifier | open | yes | yes |
-| reporter | cloud | — | never (enforced) |
-
-Profiles switch all four roles in one shot: `profiles/hybrid.env` (default split), `profiles/all_cloud.env`, `profiles/all_open.env`.
-
 ## Environment
 
-Copy `.env.example` to `.env`; every variable below is required unless it has a default.
+Copy `.env.example` to `.env`; only `MODEL_API_KEY` is required — everything else has a code default (`schemas.py` is the single source of truth for the full list).
 
 | Group | Variables |
 |---|---|
-| Endpoints | `CLOUD_BASE_URL`, `CLOUD_API_KEY`, `OPEN_BASE_URL`, `OPEN_API_KEY`, `STRUCTURED_METHOD` (`json_schema` \| `function_calling` \| `json_mode`) |
-| Roles | `PLANNER_ENDPOINT`, `PLANNER_MODEL`, `EXECUTOR_ENDPOINT`, `EXECUTOR_MODEL`, `VERIFIER_ENDPOINT`, `VERIFIER_MODEL`, `REPORTER_ENDPOINT`, `REPORTER_MODEL` |
-| Rate / retry | `RATE_LIMIT_RPM`, `LLM_MAX_ATTEMPTS`, `RETRY_INITIAL_SECONDS`, `RETRY_MAX_SECONDS` |
-| Budgets | `MAX_PLANNER_ROUNDS`, `MAX_STEP_ITERATIONS`, `MAX_LOCAL_RETRIES` (default 2), `RECURSION_LIMIT` |
+| Secrets | `MODEL_API_KEY` (required), `BASETEN_API_KEY` (optional — enables HYBRID) |
+| Mode | `NEXUS_MODE` (`auto` \| `hybrid` \| `cloud`) |
+| Per role (planner/executor/verifier/reporter) | `{ROLE}_MODEL`, `{ROLE}_REASONING_EFFORT` (`minimal`\|`low`\|`medium`\|`high`\|`xhigh`\|`max`), `{ROLE}_MAX_TOKENS` — all optional overrides |
+| OpenAI SDK | `STRUCTURED_METHOD` (`json_schema` default \| `function_calling`), `RATE_LIMIT_RPM` (default 300) |
+| Rate / retry | `LLM_MAX_ATTEMPTS`, `RETRY_INITIAL_SECONDS`, `RETRY_MAX_SECONDS` |
+| Budgets | `MAX_PLANNER_ROUNDS`, `MAX_STEP_ITERATIONS`, `MAX_LOCAL_RETRIES`, `RECURSION_LIMIT` |
 | Observation | `MAX_OBSERVATION_CHARS`, `MAX_PAGE_TEXT_CHARS`, `MAX_ARTIFACT_CHARS`, `MAX_LINKS`, `VERIFIER_PAGE_TEXT_CHARS`, `EVENT_TEXT_CHARS` |
 | Browser | `OBSERVATION_VIEWPORT_MARGIN`, `SCREENSHOT_QUALITY`, `ACTION_TIMEOUT_MS`, `NAVIGATION_TIMEOUT_MS`, `SETTLE_MS`, `TYPING_DELAY_MS`, `BROWSER_HEADLESS`, `BROWSER_CHANNEL`, `BROWSER_PROFILE_DIR`, `BROWSER_VIEWPORT_WIDTH`, `BROWSER_VIEWPORT_HEIGHT`, `BROWSER_LOCALE`, `BROWSER_TIMEZONE`, `BROWSER_EXTRA_HEADERS`, `BROWSER_LAUNCH_ARGS` |
 | Storage / dashboard | `CHECKPOINT_DB`, `REPORTS_DIR`, `DASHBOARD_HOST`, `DASHBOARD_PORT`, `DASHBOARD_OPEN`, `DASHBOARD_MAX_LOG` |
-| Safety | `ALLOW_RUN_JAVASCRIPT` (default `false`) |
+| Safety | `ALLOW_RUN_JAVASCRIPT` (default `false`), `ALLOW_CONTRIBUTOR` (default unset) |
 
 ## Benchmark
 
@@ -130,7 +137,8 @@ Per task the bench records success, wall seconds, steps, planner calls and the f
 - **robots.txt**: the `navigate` tool checks the site's robots.txt (cached per origin). Blocked URLs raise a tool error instead of silently proceeding. If robots.txt itself cannot be fetched, the check fails *open*.
 - **`run_javascript` gate**: arbitrary JS execution is registered only when `ALLOW_RUN_JAVASCRIPT=true`; the default is `false`.
 - **Untrusted page content**: the executor prompt states explicitly that page content is untrusted data and instructions found in page text are never followed — only the current plan step.
-- **Privacy ledger enforcement**: planner and reporter callbacks refuse image content outright (`PrivacyViolation`) no matter which endpoint they are assigned in a profile.
+- **Privacy ledger enforcement**: planner and reporter callbacks refuse image content outright (`PrivacyViolation`); in both modes their endpoint only ever receives text, and in hybrid mode screenshots go to the open-weights Baseten endpoint instead of Meta.
+- **Contributor-mode guard**: any `*-contributor` model id fails startup validation unless `ALLOW_CONTRIBUTOR=true` (Contributor mode lets Meta train on prompts and screenshots).
 - **Honest browser defaults**: no stealth scripts, no spoofed headers, no anti-detection launch flags; the profile directory defaults to a dedicated `.browser_profile_agent`.
 
 ## Built during the hackathon

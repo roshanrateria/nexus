@@ -98,6 +98,13 @@ def check_state_contract() -> None:
     ts_evidence = interface_keys(source, "Evidence")
     check("interfaces parsed", len(ts_state) >= 10 and len(ts_history) >= 8 and len(ts_evidence) >= 3,
           f"state={sorted(ts_state)} history={sorted(ts_history)} evidence={sorted(ts_evidence)}")
+    check("NexusState documents mode and visited", "mode" in ts_state and "visited" in ts_state,
+          f"mode={'mode' in ts_state} visited={'visited' in ts_state}")
+    ts_ledger = interface_keys(source, "Ledger")
+    ts_bucket = interface_keys(source, "Bucket")
+    check("Ledger documents cost_usd, Bucket documents cached_tokens",
+          "cost_usd" in ts_ledger and "cached_tokens" in ts_bucket,
+          f"ledger={sorted(ts_ledger)} bucket={sorted(ts_bucket)}")
 
     hub = Hub(300)
     published = [event["type"] for event in EVENTS]
