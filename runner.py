@@ -182,6 +182,7 @@ class Hub:
             "report": "",
             "report_path": "",
             "ledger": {},
+            "visited": [],
         }
 
     def reset(self) -> None:
@@ -230,6 +231,34 @@ class Hub:
             self.apply(event)
             self.broadcast()
 
+    def _track_visit(self, s: dict, e: dict) -> None:
+        """Sites visited for this run, deduped by URL: visiting again bumps
+        `visits` and moves the entry to the front (newest first). Reset
+        between runs comes for free via `_initial()`."""
+        url = e.get("url") or ""
+        if not url or url == "about:blank":
+            return
+        title = e.get("title") or ""
+        now = time.strftime("%H:%M:%S")
+        visited = s["visited"]
+        for entry in visited:
+            if entry["url"] == url:
+                entry["visits"] += 1
+                if title:
+                    entry["title"] = title
+                entry["last_t"] = now
+                visited.insert(0, visited.pop(visited.index(entry)))
+                break
+        else:
+            visited.insert(0, {
+                "url": url,
+                "host": urlsplit(url).netloc,
+                "title": title,
+                "visits": 1,
+                "first_t": now,
+                "last_t": now,
+            })
+
     def apply(self, e: dict) -> None:
         s = self.state
         kind = e["type"]
@@ -245,6 +274,7 @@ class Hub:
             self.note("plan", f"Round {e['round']}: {e['status']}, {len(e['plan'])} step(s) planned. {e['thought']}")
         elif kind == "observe":
             s["current"].update(iteration=e["iteration"], url=e["url"], title=e["title"], shot=e.get("shot", ""))
+            self._track_visit(s, e)
         elif kind == "action":
             s["current"]["last_action"] = f"{e['name']}({json.dumps(e['args'], ensure_ascii=False)})"
             self.note("action", s["current"]["last_action"])

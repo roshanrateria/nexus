@@ -107,6 +107,14 @@ def check_state_contract() -> None:
 
     check("hub mode is one of the documented values", hub.state.get("mode") in ("hybrid", "cloud"), str(hub.state.get("mode")))
 
+    visited = hub.state.get("visited") or []
+    matching = [entry for entry in visited if entry.get("url") == "https://example.com/"]
+    check("observe events track sites visited", len(matching) == 1 and matching[0]["visits"] == 1,
+          f"{[(e['url'], e['visits']) for e in visited]}")
+    if matching:
+        check("visited entry shape", set(matching[0]) == {"url", "host", "title", "visits", "first_t", "last_t"},
+              f"keys={sorted(matching[0])}")
+
     ledger_state = hub.state.get("ledger") or {}
     check("ledger carries a cost_usd", isinstance(ledger_state.get("cost_usd"), (int, float)), repr(ledger_state.get("cost_usd")))
     check("ledger buckets carry cached_tokens",

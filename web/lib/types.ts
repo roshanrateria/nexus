@@ -53,6 +53,16 @@ export interface CurrentState {
   shot?: string;
 }
 
+/** One entry per visited URL for the current run (deduped, newest first). */
+export interface VisitedSite {
+  url: string;
+  host: string;
+  title: string;
+  visits: number;
+  first_t: string;
+  last_t: string;
+}
+
 export interface LogEntry {
   t: string;
   kind: LogKind;
@@ -74,6 +84,7 @@ export interface NexusState {
   report: string;
   report_path: string;
   ledger?: Ledger;
+  visited?: VisitedSite[];
 }
 
 /** Store-level (web only) connection / replay state. */
