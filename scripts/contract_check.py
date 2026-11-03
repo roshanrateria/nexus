@@ -75,11 +75,11 @@ EVENTS: list[dict] = [
      ],
      "shot": "c0ffee12/1.jpg", "url": "https://example.com/"},
     {"type": "ledger", "data": {
-        "cloud": {"calls": 1, "prompt_tokens": 10, "completion_tokens": 5, "bytes_out": 120, "images_out": 0},
-        "open": {"calls": 2, "prompt_tokens": 20, "completion_tokens": 8, "bytes_out": 260, "images_out": 2},
-        "by_role": {"planner": {"calls": 1, "prompt_tokens": 10, "completion_tokens": 5, "bytes_out": 120, "images_out": 0},
-                    "executor": {"calls": 2, "prompt_tokens": 20, "completion_tokens": 8, "bytes_out": 260, "images_out": 2}},
-        "planner_calls": 1, "open_token_share": 0.7}},
+        "cloud": {"calls": 1, "prompt_tokens": 10, "completion_tokens": 5, "cached_tokens": 2, "bytes_out": 120, "images_out": 0},
+        "open": {"calls": 2, "prompt_tokens": 20, "completion_tokens": 8, "cached_tokens": 0, "bytes_out": 260, "images_out": 2},
+        "by_role": {"planner": {"calls": 1, "prompt_tokens": 10, "completion_tokens": 5, "cached_tokens": 2, "bytes_out": 120, "images_out": 0},
+                    "executor": {"calls": 2, "prompt_tokens": 20, "completion_tokens": 8, "cached_tokens": 0, "bytes_out": 260, "images_out": 2}},
+        "planner_calls": 1, "open_token_share": 0.7, "cost_usd": 1.3e-05}},
     {"type": "report_reset"},
     {"type": "report_chunk", "text": "# Report\n\nVerified with evidence."},
     {"type": "report_done", "path": "reports/report_c0ffee12.md"},
@@ -106,6 +106,11 @@ def check_state_contract() -> None:
     check("every event type applied", COVERED <= set(published), f"missing={sorted(COVERED - set(published))}")
 
     check("hub mode is one of the documented values", hub.state.get("mode") in ("hybrid", "cloud"), str(hub.state.get("mode")))
+
+    ledger_state = hub.state.get("ledger") or {}
+    check("ledger carries a cost_usd", isinstance(ledger_state.get("cost_usd"), (int, float)), repr(ledger_state.get("cost_usd")))
+    check("ledger buckets carry cached_tokens",
+          isinstance(ledger_state.get("cloud", {}).get("cached_tokens"), int) and isinstance(ledger_state.get("open", {}).get("cached_tokens"), int))
 
     final_keys = set(hub.state)
     check("final state matches NexusState keys exactly", final_keys == ts_state,

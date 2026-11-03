@@ -669,8 +669,9 @@ def build_models(settings: Settings, ledger: Ledger) -> Models:
     def make(role: str) -> BaseChatModel:
         endpoint = role_endpoint(settings, role)
         meta = endpoint == "cloud"
+        model = getattr(settings, f"{role}_model") if meta else BASETEN_MODEL
         return ChatOpenAI(
-            model=getattr(settings, f"{role}_model") if meta else BASETEN_MODEL,
+            model=model,
             base_url=META_BASE_URL if meta else BASETEN_BASE_URL,
             api_key=settings.model_api_key if meta else settings.baseten_api_key,
             max_tokens=getattr(settings, f"{role}_max_tokens"),
@@ -678,7 +679,7 @@ def build_models(settings: Settings, ledger: Ledger) -> Models:
             rate_limiter=limiters[endpoint],
             max_retries=1,
             stream_usage=True,
-            callbacks=[LedgerHandler(ledger, role, endpoint, text_only=role in ("planner", "reporter"))],
+            callbacks=[LedgerHandler(ledger, role, endpoint, model=model, text_only=role in ("planner", "reporter"))],
         )
 
     return Models(
