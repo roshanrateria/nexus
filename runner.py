@@ -21,7 +21,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from agent import RUNS_DIR, BrowserSession, build_graph, build_models, resolve_mode
+from agent import RUNS_DIR, BrowserSession, build_graph, build_models, check_model_key, resolve_mode
 from ledger import Ledger
 from schemas import Settings
 
@@ -588,6 +588,7 @@ async def run(args: argparse.Namespace) -> None:
     console = Console()
     settings = Settings.from_env()
     mode = resolve_mode(settings)
+    check_model_key(settings)
     hub = Hub(settings.dashboard_max_log, mode=mode)
     control = RunControl()
     async with contextlib.AsyncExitStack() as stack:

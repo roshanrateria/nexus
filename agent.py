@@ -593,6 +593,31 @@ BASETEN_MODEL = "meta-models/muse-spark-open-1026"
 # "open" = open-weights models on Baseten (runs on credits, not billed tokens).
 
 
+def check_model_key(settings: Settings) -> None:
+    """Runner-start preflight: GET /v1/models with the Bearer key.
+
+    A 401 means the key itself is bad: print a clear message and exit.
+    Network trouble (and any other HTTP status) only warns: the run may still
+    work, so don't hard-kill the server.
+    """
+    request = urllib.request.Request(
+        f"{META_BASE_URL}/models", headers={"Authorization": f"Bearer {settings.model_api_key}"}
+    )
+    try:
+        urllib.request.urlopen(request, timeout=15)
+        print(f"Preflight OK: key accepted by {META_BASE_URL}/models")
+    except urllib.error.HTTPError as error:
+        if error.code == 401:
+            print(
+                f"MODEL_API_KEY was rejected with HTTP 401. Check the key at dev.meta.ai (API keys) and update"
+                f" MODEL_API_KEY in .env. (This preflight request was GET {META_BASE_URL}/models.)"
+            )
+            raise SystemExit(1)
+        print(f"Preflight warning: {META_BASE_URL}/models returned HTTP {error.code}; continuing anyway.")
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        print(f"Preflight warning: could not reach {META_BASE_URL}/models ({type(error).__name__}: {error}) — continuing anyway, calls may fail at runtime.")
+
+
 def resolve_mode(settings: Settings) -> Literal["hybrid", "cloud"]:
     """nexus_mode auto: hybrid when BASETEN_API_KEY is set, else cloud-only."""
     if settings.nexus_mode == "auto":
