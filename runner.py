@@ -21,7 +21,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from agent import RUNS_DIR, BrowserSession, build_graph, build_models
+from agent import RUNS_DIR, BrowserSession, build_graph, build_models, resolve_mode
 from ledger import Ledger
 from schemas import Settings
 
@@ -150,20 +150,29 @@ source.onmessage = (message) => render(JSON.parse(message.data));
 """
 
 
+# Startup banner required by the Meta Model API privacy story: users must see
+# which endpoints process screenshots in the active mode.
+BANNERS = {
+    "hybrid": "Mode: HYBRID | planner+reporter -> Meta Spark | executor+verifier -> Baseten",
+    "cloud": "Mode: CLOUD-ONLY | all roles -> Meta Spark (screenshots are processed by Meta Model API)",
+}
+
+
 class Hub:
-    def __init__(self, max_log: int):
+    def __init__(self, max_log: int, mode: str = "cloud"):
         self.max_log = max_log
+        self.mode = mode
         self.lock = threading.Lock()
         self.subscribers: list[queue.Queue] = []
         self.state: dict = self._initial()
 
-    @staticmethod
-    def _initial() -> dict:
+    def _initial(self) -> dict:
         return {
             "goal": "",
             "run_id": "",
             "status": "starting",
             "outcome": "",
+            "mode": self.mode,
             "thought": "",
             "plan": [],
             "history": [],
@@ -576,9 +585,10 @@ def show(console: Console, e: dict) -> None:
 
 async def run(args: argparse.Namespace) -> None:
     load_dotenv()
-    settings = Settings.from_env()
     console = Console()
-    hub = Hub(settings.dashboard_max_log)
+    settings = Settings.from_env()
+    mode = resolve_mode(settings)
+    hub = Hub(settings.dashboard_max_log, mode=mode)
     control = RunControl()
     async with contextlib.AsyncExitStack() as stack:
         if args.checkpointer == "sqlite":
@@ -591,6 +601,7 @@ async def run(args: argparse.Namespace) -> None:
         graph = build_graph(settings, build_models(settings, ledger), browser, saver)
         control.loop = asyncio.get_running_loop()
 
+        console.print(f"[cyan]{BANNERS[mode]}[/]")
         console.print(f"[cyan]Dashboard: {dashboard.url}/[/]")
         if settings.dashboard_open:
             webbrowser.open(f"{dashboard.url}/")

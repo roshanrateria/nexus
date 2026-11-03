@@ -64,6 +64,7 @@ export interface NexusState {
   run_id: string;
   status: string;
   outcome: string;
+  mode?: "hybrid" | "cloud";
   thought: string;
   plan: Step[];
   history: HistoryRecord[];

@@ -105,6 +105,8 @@ def check_state_contract() -> None:
         hub.publish(event)
     check("every event type applied", COVERED <= set(published), f"missing={sorted(COVERED - set(published))}")
 
+    check("hub mode is one of the documented values", hub.state.get("mode") in ("hybrid", "cloud"), str(hub.state.get("mode")))
+
     final_keys = set(hub.state)
     check("final state matches NexusState keys exactly", final_keys == ts_state,
           f"python-only={sorted(final_keys - ts_state)} ts-only={sorted(ts_state - final_keys)}")

@@ -1,13 +1,13 @@
-"""Benchmark runner for bench/tasks.yml under one endpoint profile.
+"""Benchmark runner for bench/tasks.yml under one mode profile.
 
 Usage:
     python bench/run_bench.py --profile hybrid [--limit N]
 
-The profile file (profiles/<name>.env) is applied AFTER .env so its role
-variables win; BROWSER_HEADLESS is forced to true. Every task runs in its own
-fresh graph, browser session and Privacy Ledger. Each task records: id, goal,
-success, wall seconds, steps verified, planner calls and the ledger snapshot.
-Success = every must_contain regex matches the final report
+The profile file (profiles/<name>.env) is applied AFTER .env so its mode and
+role variables win; BROWSER_HEADLESS is forced to true. Every task runs in its
+own fresh graph, browser session and Privacy Ledger. Each task records: id,
+goal, success, wall seconds, steps verified, planner calls and the ledger
+snapshot. Success = every must_contain regex matches the final report
 case-insensitively. Results go to bench/results/<profile>.json and the
 cross-profile table to bench/summary.md. Never prints credentials.
 """
@@ -28,7 +28,9 @@ sys.path.insert(0, str(ROOT))
 
 RESULTS_DIR = ROOT / "bench" / "results"
 ROLES = ("planner", "executor", "verifier", "reporter")
-PROFILE_KEYS = sorted({f"{role}_{kind}".upper() for role in ROLES for kind in ("endpoint", "model")})
+PROFILE_KEYS = sorted(
+    {"NEXUS_MODE", *{f"{role}_{kind}".upper() for role in ROLES for kind in ("model", "reasoning_effort", "max_tokens")}}
+)
 
 
 def load_profile(name: str) -> dict[str, str]:
@@ -46,8 +48,9 @@ def load_profile(name: str) -> dict[str, str]:
     unexpected = sorted(set(values) - set(PROFILE_KEYS))
     if set(values) != set(PROFILE_KEYS):
         raise SystemExit(
-            f"profile {path.name} must contain exactly the 8 role variables; "
-            f"missing={sorted(set(PROFILE_KEYS) - set(values))}, unexpected={unexpected}"
+            f"profile {path.name} must contain exactly NEXUS_MODE plus the 12 role variables"
+            f" (model, reasoning_effort, max_tokens per role); missing={sorted(set(PROFILE_KEYS) - set(values))},"
+            f" unexpected={unexpected}"
         )
     os.environ.update(values)
     os.environ["BROWSER_HEADLESS"] = "true"

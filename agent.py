@@ -586,15 +586,37 @@ def require_report(message: AIMessage) -> AIMessage:
 
 
 META_BASE_URL = "https://api.meta.ai/v1"
+BASETEN_BASE_URL = "https://inference.baseten.co/v1"
+BASETEN_MODEL = "meta-models/muse-spark-open-1026"
+
+# LLM endpoint keys used by the Privacy Ledger: "cloud" = hosted Meta Model API,
+# "open" = open-weights models on Baseten (runs on credits, not billed tokens).
+
+
+def resolve_mode(settings: Settings) -> Literal["hybrid", "cloud"]:
+    """nexus_mode auto: hybrid when BASETEN_API_KEY is set, else cloud-only."""
+    if settings.nexus_mode == "auto":
+        return "hybrid" if settings.baseten_api_key else "cloud"
+    return settings.nexus_mode
+
+
+def role_endpoint(settings: Settings, role: str) -> Literal["cloud", "open"]:
+    """Hybrid keeps planner + reporter on Meta (text-only) and gives the
+    screenshot-seeing executor + verifier to the open-weights endpoint; cloud-only runs every role on Meta."""
+    if resolve_mode(settings) == "hybrid" and role in ("executor", "verifier"):
+        return "open"
+    return "cloud"
 
 
 def build_models(settings: Settings, ledger: Ledger) -> Models:
-    """One ChatOpenAI per role against the Meta Model API.
+    """One ChatOpenAI per role against its resolved endpoint.
 
     Every role gets a LedgerHandler counting what leaves the machine; planner
     and reporter handlers are ALWAYS text_only. All four roles share one
-    endpoint budget (rate_limit_rpm).
+    endpoint budget (rate_limit_rpm) and `reasoning_effort` is only sent to the
+    Meta endpoint (the open-weights Baseten model does not use it).
     """
+
     limiters = {
         endpoint: InMemoryRateLimiter(
             requests_per_second=settings.rate_limit_rpm / 60, check_every_n_seconds=0.05, max_bucket_size=1
@@ -603,13 +625,14 @@ def build_models(settings: Settings, ledger: Ledger) -> Models:
     }
 
     def make(role: str) -> BaseChatModel:
-        endpoint = "cloud"  # the one endpoint for now: the Meta Model API
+        endpoint = role_endpoint(settings, role)
+        meta = endpoint == "cloud"
         return ChatOpenAI(
-            model=getattr(settings, f"{role}_model"),
-            base_url=META_BASE_URL,
-            api_key=settings.model_api_key,
+            model=getattr(settings, f"{role}_model") if meta else BASETEN_MODEL,
+            base_url=META_BASE_URL if meta else BASETEN_BASE_URL,
+            api_key=settings.model_api_key if meta else settings.baseten_api_key,
             max_tokens=getattr(settings, f"{role}_max_tokens"),
-            reasoning_effort=getattr(settings, f"{role}_reasoning_effort"),
+            reasoning_effort=getattr(settings, f"{role}_reasoning_effort") if meta else None,
             rate_limiter=limiters[endpoint],
             max_retries=1,
             stream_usage=True,
@@ -617,9 +640,9 @@ def build_models(settings: Settings, ledger: Ledger) -> Models:
         )
 
     return Models(
-        planner=make("planner").with_structured_output(PlannerDecision, method=settings.structured_method) | RunnableLambda(reject_none),
+        planner=make("planner").with_structured_output(PlannerDecision, method=settings.structured_method, strict=False) | RunnableLambda(reject_none),
         executor=make("executor"),
-        verifier=make("verifier").with_structured_output(VerificationResult, method=settings.structured_method) | RunnableLambda(reject_none),
+        verifier=make("verifier").with_structured_output(VerificationResult, method=settings.structured_method, strict=False) | RunnableLambda(reject_none),
         reporter=make("reporter"),
     )
 

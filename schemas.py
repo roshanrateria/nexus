@@ -100,6 +100,21 @@ class Settings(BaseModel):
             sys.exit("MODEL_API_KEY is missing. Create a key at dev.meta.ai (API keys) and add MODEL_API_KEY=... to .env")
         return cls(**values)
 
+    @model_validator(mode="after")
+    def check_contributor_models(self) -> "Settings":
+        """Contributor-mode models let Meta train on prompts and screenshots: refuse them."""
+        if os.environ.get("ALLOW_CONTRIBUTOR", "").strip().lower() in ("1", "true", "yes"):
+            return self
+        for role in ("planner", "executor", "verifier", "reporter"):
+            model_id = getattr(self, f"{role}_model")
+            if model_id.endswith("-contributor"):
+                raise ValueError(
+                    f"{role}_model '{model_id}' is a Contributor-mode model: with Contributor mode Meta may"
+                    " train on prompts and screenshots. Use a muse-spark-* standard model, or set"
+                    " ALLOW_CONTRIBUTOR=true to override this guard."
+                )
+        return self
+
 
 class PlanStep(BaseModel):
     instruction: str = Field(description="Self-contained instruction for the browser operator, including exactly what information to record when information is needed")
