@@ -330,8 +330,8 @@ class Attempt:
                 page.wait_for_timeout(400)
 
             # -- real typing ------------------------------------------------
-            self.move_to(page, page.get_by_test_id("composer-input"), steps=35)
-            page.mouse.click(*page.mouse.position)
+            x, y = self.move_to(page, page.get_by_test_id("composer-input"), steps=35)
+            page.mouse.click(x, y)
             page.keyboard.type(args.goal, delay=28)
             start_button = page.get_by_test_id("composer-start")
             for _ in range(60):  # hydration / controlled-input settle
@@ -340,14 +340,14 @@ class Attempt:
                 page.wait_for_timeout(500)
             else:
                 return False, "composer-start never became enabled"
-            self.move_to(page, start_button, steps=25)
             self.marks["scenes"]["start_click_armed"] = self.t()
+            _sx, _sy = self.move_to(page, start_button, steps=25)
             if args.no_video:
                 # Rehearsal mode: type but never start a real run.
                 self.marks["scenes"]["note"] = "no-video rehearsal: typed, not started"
                 return True, "no-video rehearsal (typed, not started)"
             self.marks["scenes"]["start_click"] = self.t()
-            page.mouse.click(*page.mouse.position)
+            page.mouse.click(_sx, _sy)
 
             # Stale-attempt retry ran inside a dialog sheet: close it now.
             if page.locator("[role='dialog']").count() > 0:
@@ -520,38 +520,54 @@ class Attempt:
         self.show_caption(page, caption, FINISH_CAPTION_MS)
 
         # blur anything focused so the hotkeys work again
-        page.evaluate("() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }")
+        try:
+            page.evaluate("() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }")
+        except Exception as error:
+            self.note_trigger(f"blur failed: {type(error).__name__}")
 
         # report tab + slow scroll
-        page.keyboard.press("2")
-        page.wait_for_timeout(600)
-        report = page.get_by_test_id("report-body")
-        box = report.bounding_box()
-        if box:
-            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 80, steps=12)
-            for _ in range(6):
-                page.mouse.wheel(0, 360)
-                page.wait_for_timeout(420)
+        try:
+            page.keyboard.press("2")
+            page.wait_for_timeout(600)
+            report = page.get_by_test_id("report-body")
+            box = report.bounding_box()
+            if box:
+                page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 80, steps=12)
+                for _ in range(6):
+                    page.mouse.wheel(0, 360)
+                    page.wait_for_timeout(420)
+        except Exception as error:
+            self.note_trigger(f"report scroll failed: {type(error).__name__}")
+            self.errors.append(f"report scroll: {error}")
 
         # first evidence chip -> sheet -> hold -> Esc
-        chips = page.get_by_test_id("evidence-chip")
-        if chips.count() > 0:
-            chip = chips.first
-            chip.scroll_into_view_if_needed()
-            self.move_to(page, chip, steps=25)
-            self.marks["scenes"]["evidence_sheet"] = self.t()
-            page.mouse.click(*page.mouse.position)
-            page.wait_for_timeout(3000)
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(600)
+        try:
+            chips = page.get_by_test_id("evidence-chip")
+            if chips.count() > 0:
+                chip = chips.first
+                chip.scroll_into_view_if_needed()
+                self.move_to(page, chip, steps=25)
+                self.marks["scenes"]["evidence_sheet"] = self.t()
+                _cx, _cy = self.move_to(page, chip, steps=10)
+                page.mouse.click(_cx, _cy)
+                page.wait_for_timeout(3000)
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(600)
+        except Exception as error:
+            self.note_trigger(f"evidence sheet failed: {type(error).__name__}")
+            self.errors.append(f"evidence sheet: {error}")
 
         # graph, then back to live
-        page.keyboard.press("3")
-        self.marks["scenes"]["graph"] = self.t()
-        page.wait_for_timeout(3000)
-        page.keyboard.press("1")
-        self.marks["scenes"]["live"] = self.t()
-        page.wait_for_timeout(2000)
+        try:
+            page.keyboard.press("3")
+            self.marks["scenes"]["graph"] = self.t()
+            page.wait_for_timeout(3000)
+            page.keyboard.press("1")
+            self.marks["scenes"]["live"] = self.t()
+            page.wait_for_timeout(2000)
+        except Exception as error:
+            self.note_trigger(f"stage tabs failed: {type(error).__name__}")
+            self.errors.append(f"stage tabs: {error}")
 
 
 # --------------------------------------------------------------------------
