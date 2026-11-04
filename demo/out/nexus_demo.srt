@@ -1,0 +1,40 @@
+﻿1
+00:00:10,920 --> 00:00:14,520
+The real goal, typed character by character.
+
+2
+00:00:28,820 --> 00:00:31,220
+Start - from here on, agent only.
+
+3
+00:00:32,830 --> 00:00:36,430
+Planner (text only) splits the goal into steps
+
+4
+00:00:36,550 --> 00:00:38,750
+Planner split the real goal into three source visits: SIA, a US .gov page, TSMC investor relations.
+
+5
+00:00:42,100 --> 00:00:44,300
+Cloud-only mode: all roles run on Muse Spark 1.3
+
+6
+00:00:44,777 --> 00:00:49,177
+Live at the engine's real cadence: navigate, screenshot, extract, verify.
+
+7
+00:00:55,424 --> 00:00:59,024
+Every quote is checked verbatim against the page
+
+8
+00:01:04,231 --> 00:01:07,315
+Bot checks happen - the agent pivots to other credible sources.
+
+9
+00:01:23,427 --> 00:01:28,047
+Watchdog, not the engine: cut mid-research at the run cap - $0.22 billed, 4 verified quotes live in the ledger.
+
+10
+00:01:29,047 --> 00:01:33,047
+Ledger at the cut: 24 analyzer calls, 199k tokens, every screenshot logged to cloud.
+
