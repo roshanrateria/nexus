@@ -1,0 +1,6 @@
+# Dependencies for the demo recorder + editor (demo/record_demo.py, demo/edit.py).
+# Playwright itself comes from the repo root requirements.txt; Python 3.12+.
+# edit.py prefers a real ffmpeg on PATH (shutil.which("ffmpeg")) and only
+# falls back to imageio-ffmpeg's bundled binary when ffmpeg is missing.
+imageio-ffmpeg>=0.6.0
+Pillow>=10.0.0
