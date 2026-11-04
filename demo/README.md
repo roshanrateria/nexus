@@ -103,6 +103,18 @@ hidden expenses.
   attempts keep `out/marks_failed_a<N>.json` and no final video is
   produced unless an attempt reached `goal_achieved`.
 
+## Completeness note (owner-requested final build)
+
+A fourth run also hit its cap; on the owner's explicit request the final
+`nexus_demo.mp4` was assembled from the run #3 bytes (the proof-cut source)
+via `python demo/build_demo_from_proof.py`: same honest time-lapse rules,
+captions burned in AND shipped as `nexus_demo.srt`, and a closing card
+(`demo/out/proof_outro_card.webm`, same glass style) that discloses the
+watchdog cut and shows the run's real ledger numbers. Every dashboard frame
+is the genuine recording; nothing is re-staged. Run receipt:
+`demo/out/marks_run3.json` (recovered from version control because later
+attempts overwrite `marks_failed_a*.json`).
+
 ## Engine proof cut (watchdog-stopped run)
 
 Three real research-grade runs (compressed real briefs from `demo/goal.txt`)
