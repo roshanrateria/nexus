@@ -71,9 +71,11 @@ function SheetCard({ evidence }: { evidence: Evidence }) {
   const url = shotUrl(evidence.shot);
 
   useEffect(() => {
+    // Restore whatever the page had (the shell hides page scroll ≥1100px).
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = prev;
     };
   }, []);
 

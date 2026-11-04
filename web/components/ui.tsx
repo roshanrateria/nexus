@@ -9,6 +9,25 @@ import { SPRING, useEnter } from "@/lib/motion";
 import { TONE_COLOR, type StatusInfo } from "@/lib/statusMap";
 import { useSpecular } from "@/lib/useSpecular";
 
+/* ------------------------------------------------------------------ glass */
+
+/** A glass region whose specular highlight tracks the pointer (--mx/--my
+ * feed the `.glass::after` radial). */
+export function GlassRegion({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useSpecular<HTMLDivElement>();
+  return (
+    <div ref={ref} className={cn("nexus-region glass", className)}>
+      {children}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ logo */
 
 export function LogoGlyph({ size = 30, className }: { size?: number; className?: string }) {
@@ -229,37 +248,90 @@ export function CopyButton({
 
 export interface PanelProps {
   title?: string;
-  right?: ReactNode;
+  /** Number shown in a small count badge next to the title. */
+  count?: number | string;
+  action?: ReactNode;
   className?: string;
   bodyClassName?: string;
-  enterIndex?: number;
+  /** Body scrolls internally (thin scrollbar); false for auto content. */
+  scroll?: boolean;
   children: ReactNode;
 }
 
-const ENTER = [
-  { opacity: 0, y: 18, scale: 0.985 },
-  { opacity: 1, y: 0, scale: 1 },
-];
-
-export function Panel({ title, right, className, bodyClassName, enterIndex = 0, children }: PanelProps) {
-  const specular = useSpecular<HTMLDivElement>();
-  const enter = useEnter(SPRING, Math.min(enterIndex * 0.05, 0.4));
+export function Panel({ title, count, action, className, bodyClassName, scroll = true, children }: PanelProps) {
+  const hasHeader = Boolean(title) || count !== undefined || Boolean(action);
   return (
-    <motion.section
-      ref={specular}
-      initial={ENTER[0]}
-      animate={ENTER[1]}
-      transition={enter}
-      className={cn("glass relative flex min-h-0 flex-col overflow-hidden p-4 md:p-5", className)}
-    >
-      {(title ?? right) && (
+    <section className={cn("fill relative flex min-h-0 min-w-0 flex-col overflow-hidden p-4", className)}>
+      {hasHeader && (
         <header className="mb-3 flex shrink-0 items-center justify-between gap-2">
-          <h2 className="caption">{title}</h2>
-          {right}
+          <div className="flex min-w-0 items-center gap-2">
+            {title && <h2 className="caption truncate">{title}</h2>}
+            {count !== undefined && <CountBadge value={count} />}
+          </div>
+          {action}
         </header>
       )}
-      <div className={cn("flex min-h-0 flex-1", bodyClassName)}>{children}</div>
-    </motion.section>
+      <div className={cn("flex min-h-0 flex-1 flex-col", scroll && "scroll overflow-y-auto", bodyClassName)}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+export function CountBadge({ value, className }: { value: number | string; className?: string }) {
+  return (
+    <span className={cn("chip num shrink-0 px-2 py-0 text-[10.5px]!", className)}>{value}</span>
+  );
+}
+
+/** Friendly empty body for a panel. */
+export function PanelEmpty({ icon, title, hint }: { icon: ReactNode; title: string; hint?: string }) {
+  return (
+    <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 px-6 text-center">
+      <span className="text-(--faint)">{icon}</span>
+      <p className="text-[13px] leading-snug text-(--dim)">{title}</p>
+      {hint && <p className="max-w-[280px] text-[11.5px] leading-snug text-(--faint)">{hint}</p>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ segmented */
+
+export interface SegOption {
+  id: string;
+  label: string;
+  hotkey?: string;
+}
+
+export function Segmented({
+  options,
+  value,
+  onChange,
+  className,
+}: {
+  options: SegOption[];
+  value: string;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn("seg", className)} role="tablist" aria-label="Center view">
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          role="tab"
+          data-active={option.id === value}
+          aria-selected={option.id === value}
+          onClick={() => onChange(option.id)}
+          title={option.hotkey ? `${option.label} (${option.hotkey})` : option.label}
+          className="seg-btn"
+        >
+          {option.label}
+          {option.hotkey && <kbd className="seg-key">{option.hotkey}</kbd>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -282,7 +354,7 @@ export function GhostButton({
       transition={SPRING}
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-2 rounded-[14px] border px-4 py-2 text-[13px] font-medium transition-colors",
+        "inline-flex items-center gap-2 rounded-[12px] border px-4 py-2 text-[13px] font-medium transition-colors",
         "border-(--line) bg-(--fill) hover:bg-(--fill-strong)",
         className
       )}
@@ -291,3 +363,7 @@ export function GhostButton({
     </motion.button>
   );
 }
+
+/* ------------------------------------------------------------------ enter */
+
+export { useEnter, SPRING };

@@ -1,17 +1,17 @@
 "use client";
 
+import { memo, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Clock3 } from "lucide-react";
+import { Check, ChevronDown, Clock3, RefreshCcw, Route, Trash2 } from "lucide-react";
 import { SPRING, useEnter } from "@/lib/motion";
-import { memo } from "react";
 import { buildTimeline, selectTimeline, type TimelineItem } from "@/lib/selectors";
 import { useNexus } from "@/lib/useNexus";
 import { cn } from "@/lib/cn";
-import { Panel } from "./ui";
+import { CountBadge, Panel, PanelEmpty } from "./ui";
 
-const VERDICT_LABEL: Record<string, string> = {
-  retry: "retry",
-  replan: "replan",
+const VERDICT_META: Record<string, { label: string; tone: string; icon: React.ReactNode }> = {
+  retry: { label: "retry", tone: "var(--warn)", icon: <RefreshCcw size={9} /> },
+  replan: { label: "replan", tone: "var(--bad)", icon: <Trash2 size={9} /> },
 };
 
 const itemsEqual = (a: TimelineItem[] | undefined, b: TimelineItem[] | undefined): boolean => {
@@ -40,171 +40,144 @@ const selectTimelineItems = (s: Parameters<typeof selectTimeline>[0]) => {
   return buildTimeline(t.history, t.plan);
 };
 
+/** Left column: compact step cards for the plan + executed history.-active
+ * card glows; finished cards show a verdict chip; cards expand on click to
+ * reveal the expected outcome / assessment. */
 function PlanTimelineBase({ className }: { className?: string }) {
   const timeline = useNexus(selectTimelineItems, itemsEqual);
+  const enter = useEnter(SPRING);
+
+  // Keep the active card visible without yanking the scroll position during
+  // streaming.
+  const listRef = useRef<HTMLOListElement | null>(null);
+  const activeIndex = timeline.findIndex((t) => t.state === "active");
+  useEffect(() => {
+    const list = listRef.current;
+    if (activeIndex < 0 || !list) return;
+    const child = list.children[activeIndex] as HTMLElement | undefined;
+    if (!child) return;
+    child.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, timeline.length]);
 
   return (
     <Panel
-      title="Plan timeline"
-      right={<span className="chip num">{timeline.length} steps</span>}
-      className={cn("lg:col-span-5", className)}
-      enterIndex={2}
+      title="Plan"
+      count={timeline.length > 0 ? timeline.length : undefined}
+      action={
+        activeIndex >= 0 ? (
+          <span className="chip text-(--violet)">
+            <Clock3 size={10} />
+            step {activeIndex + 1} running
+          </span>
+        ) : undefined
+      }
+      className={className}
+      bodyClassName="flex flex-col"
     >
-      <ol className="scroll relative min-h-0 flex-1 overflow-y-auto pr-2">
-        {timeline.length === 0 && (
-          <EmptyRow />
-        )}
-        {timeline.map((item, i) => (
-          <TimelineRow key={item.key} item={item} index={i} total={timeline.length} />
-        ))}
-        <li aria-hidden="true" className="h-1" />
-      </ol>
+      {timeline.length === 0 ? (
+        <PanelEmpty
+          icon={<Route size={20} />}
+          title="No plan yet."
+          hint="The planner writes numbered steps here; the executor works through them one by one."
+        />
+      ) : (
+        <ol ref={listRef} className="flex flex-col gap-1.5">
+          {timeline.map((item, i) => (
+            <TimelineRow key={item.key} item={item} index={i} enter={enter} />
+          ))}
+        </ol>
+      )}
     </Panel>
   );
 }
 
-export function EmptyRow() {
-  return (
-    <li className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 text-center">
-      <Clock3 size={20} className="text-(--faint)" />
-      <p className="text-[13px] text-(--dim)">No plan yet — the planner drafts steps the moment a goal lands.</p>
-    </li>
-  );
-}
+function TimelineRow({
+  item,
+  index,
+  enter,
+}: {
+  item: TimelineItem;
+  index: number;
+  enter: ReturnType<typeof useEnter>;
+}) {
+  const [open, setOpen] = useState(false);
+  const done = item.state === "done";
+  const active = item.state === "active";
+  const failed = item.state === "failed";
+  const verdict = VERDICT_META[item.verdict ?? ""];
 
-function TimelineRow({ item, index, total }: { item: TimelineItem; index: number; total: number }) {
-  const enter = useEnter(SPRING, Math.min(index * 0.03, 0.3));
   return (
-    <li className="relative pl-8">
-      {/* rail */}
-      <span
-        aria-hidden="true"
-        className="absolute bottom-0 left-[11px] top-2 w-px"
-        style={
-          index === total - 1
-            ? { background: "linear-gradient(to bottom, var(--line), transparent)" }
-            : { background: "var(--line)" }
-        }
-      />
-      {/* node */}
-      <span className="absolute left-0 top-1 grid h-6 w-6 place-items-center">
-        <NodeState state={item.state} />
-      </span>
-      <motion.div
-        initial={{ opacity: 0, x: -14 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={enter}
+    <motion.li
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={enter}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
         className={cn(
-          "rounded-[14px] border px-3 py-2.5",
-          item.state === "active"
-            ? "border-(--violet)/35 bg-(--violet)/12 shadow-[0_8px_28px_-8px_rgb(139_92_246/.45)]"
-            : item.state === "failed"
-              ? "border-(--bad)/25 bg-(--bad)/8"
-              : "border-transparent bg-transparent"
+          "row-card w-full cursor-pointer p-2.5 text-left",
+          active && "!border-(--violet)/45 bg-(--violet)/8",
+          "focus-visible:outline-2 focus-visible:outline-(--focus)"
         )}
+        style={active ? { boxShadow: "0 0 0 1px color-mix(in srgb, var(--violet) 25%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--violet) 45%, transparent)" } : undefined}
       >
-        <div className="flex items-start gap-2">
+        <span className="flex items-start gap-2.5">
           <span
+            aria-hidden="true"
             className={cn(
-              "caption mt-[3px] shrink-0 rounded-md px-1.5 text-[10px]!",
-              item.state === "active" ? "text-(--violet)" : "text-(--faint)"
+              "num grid h-5 w-5 shrink-0 translate-y-0.5 place-items-center rounded-full border text-[10px] font-bold",
+              done && "border-(--ok)/40 bg-(--ok)/15 text-(--ok)",
+              active && "border-(--violet)/55 bg-(--violet)/18 text-(--violet)",
+              failed && "border-(--bad)/45 bg-(--bad)/12 text-(--bad)",
+              item.state === "queued" && "border-(--line) text-(--faint)"
             )}
           >
-            {String(index + 1).padStart(2, "0")}
+            {done ? <Check size={11} /> : failed ? verdict?.icon : index + 1}
           </span>
-          <div className="min-w-0 flex-1">
-            <p
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span
               className={cn(
-                "text-[13px] leading-snug",
-                item.state === "done" && "text-(--dim)",
-                item.state === "active" ? "font-medium text-(--text)" : "text-(--text)"
+                "text-[12px] font-medium leading-snug",
+                item.state === "queued" ? "text-(--dim)" : "text-(--text)"
               )}
+              style={{ display: "-webkit-box", WebkitLineClamp: open ? undefined : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
             >
               {item.instruction}
-            </p>
-            <p className="mt-0.5 line-clamp-1 text-[11.5px] text-(--faint)">{item.expected}</p>
-            {item.assessment && (
-              <p className="mt-1 line-clamp-2 text-[11.5px] leading-snug text-(--dim)">{item.assessment}</p>
+            </span>
+            {open && (
+              <span className="flex flex-col gap-1 border-t border-(--line) pt-1.5">
+                <span className="text-[11px] leading-snug text-(--dim)">
+                  <span className="font-semibold text-(--faint)">expected</span> {item.expected}
+                </span>
+                {item.assessment && (
+                  <span className="text-[11px] leading-snug text-(--warn)">
+                    <span className="font-semibold opacity-80">verifier</span> {item.assessment}
+                  </span>
+                )}
+                {item.evidences > 0 && <CountBadge value={`${item.evidences} evidence`} />}
+              </span>
             )}
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {item.verdict && VERDICT_LABEL[item.verdict] && (
-                <span
-                  className={cn(
-                    "chip px-2 py-0 text-[10px]! uppercase!",
-                    item.verdict === "retry" ? "text-(--warn)" : "text-(--bad)"
-                  )}
-                >
-                  {VERDICT_LABEL[item.verdict]}
-                </span>
-              )}
-              {item.state === "done" && item.evidences > 0 && (
-                <span className="chip px-2 py-0 text-[10px]!">
-                  <Check size={10} /> {item.evidences} evidence
-                </span>
-              )}
-              {item.state === "done" && (
-                <span className="chip px-2 py-0 text-[10px]! text-(--ok)">verified</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    </li>
-  );
-}
-
-function NodeState({ state }: { state: string }) {
-  if (state === "done") {
-    return (
-      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-        <circle cx="10" cy="10" r="8.5" fill="none" stroke="var(--ok)" strokeOpacity=".5" strokeWidth="1.5" />
-        <motion.path
-          d="M6.2 10.3 L9 13 L14 7.2"
-          fill="none"
-          stroke="var(--ok)"
-          strokeWidth="1.9"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={SPRING}
-        />
-      </svg>
-    );
-  }
-  if (state === "failed") {
-    return (
-      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-        <circle cx="10" cy="10" r="8.5" fill="none" stroke="var(--bad)" strokeOpacity=".45" strokeWidth="1.5" />
-        <motion.path
-          d="M7 7 L13 13 M13 7 L7 13"
-          fill="none"
-          stroke="var(--bad)"
-          strokeWidth="1.9"
-          strokeLinecap="round"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={SPRING}
-        />
-      </svg>
-    );
-  }
-  if (state === "active") {
-    return (
-      <span className="relative grid h-5 w-5 place-items-center">
-        <motion.span
-          className="absolute h-5 w-5 rounded-full border border-(--violet)/60"
-          animate={{ scale: [1, 1.45], opacity: [0.7, 0] }}
-          transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }}
-        />
-        <span className="h-3 w-3 rounded-full bg-(--violet) shadow-[0_0_12px_rgb(183_140_247/.8)]" />
-      </span>
-    );
-  }
-  return (
-    <span className="grid h-5 w-5 place-items-center">
-      <span className="h-2.5 w-2.5 rounded-full border border-(--faint)" />
-    </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5">
+            {failed && verdict && (
+              <span
+                className="chip px-1.5 py-0 text-[9.5px]!"
+                style={{ color: verdict.tone, borderColor: `color-mix(in srgb, ${verdict.tone} 40%, transparent)`, background: `color-mix(in srgb, ${verdict.tone} 10%, transparent)` }}
+              >
+                {verdict.icon}
+                {verdict.label}
+              </span>
+            )}
+            {item.evidences > 0 && done && (
+              <span className="chip px-1.5 py-0 text-[9.5px]!">{item.evidences}</span>
+            )}
+            <ChevronDown size={12} className={cn("shrink-0 text-(--faint) transition-transform", open && "rotate-180")} />
+          </span>
+        </span>
+      </button>
+    </motion.li>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, memo, useState, type CSSProperties } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   forceCollide,
   forceLink,
@@ -13,12 +13,21 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { AnimatePresence, motion } from "framer-motion";
-import { selectEvidences, selectTimeline } from "@/lib/selectors";
-import { useNexus } from "@/lib/useNexus";
 import { SPRING } from "@/lib/motion";
 import { useEvidenceSheet } from "./EvidenceSheet";
 import { cn } from "@/lib/cn";
-import { Panel } from "./ui";
+import { useNexus } from "@/lib/useNexus";
+import {
+  equalGoals,
+  equalSteps,
+  equalHistoryLite,
+  selectGraphGoal as selectGoal,
+  selectGraphHistory as selectHistoryLite,
+  selectGraphPlan as selectPlanLite,
+  type HistoryLite,
+  type PlanLite,
+} from "@/lib/graphData";
+import { Network } from "lucide-react";
 
 interface GNode extends SimulationNodeDatum {
   id: string;
@@ -43,6 +52,11 @@ const VERDICT_COLOR: Record<GNode["verdict"], string> = {
   queued: "var(--run)",
 };
 
+/** Stage-scale layout: the graph fills the whole center column, so link
+ * distances and repulsion are tuned larger than a side-panel plot. */
+const LINK_STEP = 150;
+const LINK_EVIDENCE = 82;
+
 interface SimpleNode {
   id: string;
   type: GNode["type"];
@@ -58,18 +72,17 @@ interface SimpleLink {
   dist: number;
 }
 
-function buildModel(goal: string, history: HistoryRecordLite[], plan: PlanStepLite[]): {
+function buildModel(goal: string, history: HistoryLite[], plan: PlanLite[]): {
   nodes: SimpleNode[];
   links: SimpleLink[];
 } {
-  const nodes: SimpleNode[] = [
-    { id: "goal", type: "goal", verdict: "active", label: goal, r: 11 },
-  ];
+  const nodes: SimpleNode[] = [{ id: "goal", type: "goal", verdict: "active", label: goal, r: 14 }];
   const links: SimpleLink[] = [];
   const seen = new Set<string>(["goal"]);
 
   const addNode = (node: SimpleNode): boolean => {
-    if (nodes.length >= MAX_NODES || seen.has(node.id)) return nodes.length < MAX_NODES && seen.has(node.id);
+    if (nodes.length >= MAX_NODES) return false;
+    if (seen.has(node.id)) return true;
     seen.add(node.id);
     nodes.push(node);
     return true;
@@ -77,44 +90,35 @@ function buildModel(goal: string, history: HistoryRecordLite[], plan: PlanStepLi
 
   history.forEach((record, i) => {
     const id = `h-${i}`;
-    if (!addNode({ id, type: "step", verdict: record.complete ? "done" : record.verdict, label: record.instruction, r: 7 })) return;
-    links.push({ source: "goal", target: id, dist: 78 });
+    if (!addNode({ id, type: "step", verdict: record.complete ? "done" : record.verdict, label: record.instruction, r: 9 })) return;
+    links.push({ source: "goal", target: id, dist: LINK_STEP });
     for (const evidence of record.evidences) {
       if (nodes.length >= MAX_NODES) break;
-      if (addNode({ id: evidence.id, type: "evidence", verdict: record.complete ? "done" : "retry", label: evidence.summarized, r: 4, evidenceId: evidence.id })) {
-        links.push({ source: id, target: evidence.id, dist: 44 });
+      if (addNode({ id: evidence.id, type: "evidence", verdict: record.complete ? "done" : "retry", label: evidence.summarized, r: 5, evidenceId: evidence.id })) {
+        links.push({ source: id, target: evidence.id, dist: LINK_EVIDENCE });
       }
     }
   });
 
   plan.forEach((step, i) => {
     const id = `p-${i}`;
-    if (!addNode({ id, type: "step", verdict: i === 0 ? "active" : "queued", label: step.instruction, r: 7 })) return;
-    links.push({ source: "goal", target: id, dist: 78 });
+    if (!addNode({ id, type: "step", verdict: i === 0 ? "active" : "queued", label: step.instruction, r: 9 })) return;
+    links.push({ source: "goal", target: id, dist: LINK_STEP });
   });
 
   return { nodes, links };
 }
 
-interface HistoryRecordLite {
-  instruction: string;
-  complete: boolean;
-  verdict: "done" | "retry" | "replan";
-  evidences: { id: string; summarized: string }[];
-}
-
-interface PlanStepLite {
-  instruction: string;
-}
-
-function KnowledgeGraphBase({ className }: { className?: string }) {
-  const goal = useNexus(selectGoal);
-  const history = useNexus(selectHistoryLite, timelineHistoryEqual);
-  const plan = useNexus(selectPlanLite, stepsOnlyEqual);
-  const evidences = useNexus(selectEvidenceIds, evidenceCountEqual);
+/** Full-stage (center column) knowledge graph: goal anchors the middle,
+ * steps orbit it, evidence blooms off its step. Clicking an evidence dot
+ * opens the sheet. */
+function GraphStageBase({ className }: { className?: string }) {
+  const goal = useNexus(selectGoal, equalGoals);
+  const history = useNexus(selectHistoryLite, equalHistoryLite);
+  const plan = useNexus(selectPlanLite, equalSteps);
   const { open } = useEvidenceSheet();
 
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const nodesRef = useRef<Map<string, GNode>>(new Map());
   const linksRef = useRef<GLink[]>([]);
@@ -123,7 +127,7 @@ function KnowledgeGraphBase({ className }: { className?: string }) {
   const [, setTick] = useState(0);
   const [hover, setHover] = useState<{ node: GNode; x: number; y: number } | null>(null);
 
-  const sig = `${history.length}:${plan.length}:${evidences.length}:${goal.length}`;
+  const sig = `${history.length}:${plan.length}:${goal.length}`;
 
   // Keep the freshest raw slices; the simulation effect only fires on sig.
   useEffect(() => {
@@ -141,11 +145,7 @@ function KnowledgeGraphBase({ className }: { className?: string }) {
   }, []);
 
   useEffect(() => {
-    const model = buildModel(
-      dataRef.current.goal,
-      dataRef.current.history,
-      dataRef.current.plan
-    );
+    const model = buildModel(dataRef.current.goal, dataRef.current.history, dataRef.current.plan);
     const keep = nodesRef.current;
     const merged: GNode[] = [];
     const present = new Set<string>();
@@ -176,17 +176,14 @@ function KnowledgeGraphBase({ className }: { className?: string }) {
     const links: GLink[] = model.links.map((l) => ({ source: l.source, target: l.target, dist: l.dist }));
     linksRef.current = links;
 
-    const linkForce = forceLink<GNode, GLink>(links)
-      .id((d) => d.id)
-      .distance((l) => l.dist)
-      .strength(0.6);
+    const linkForce = forceLink<GNode, GLink>(links).id((d) => d.id).distance((l) => l.dist).strength(0.6);
 
     if (!simRef.current) {
       const sim = forceSimulation<GNode, GLink>(merged)
-        .force("charge", forceManyBody<GNode>().strength((d) => (d.type === "goal" ? -170 : -92)))
-        .force("collide", forceCollide<GNode>((d) => d.r + 3).iterations(1.4))
-        .force("x", forceX<GNode>(0).strength(0.055))
-        .force("y", forceY<GNode>(0).strength(0.05))
+        .force("charge", forceManyBody<GNode>().strength((d) => (d.type === "goal" ? -320 : -150)))
+        .force("collide", forceCollide<GNode>((d) => d.r + 6).iterations(1.4))
+        .force("x", forceX<GNode>(0).strength(0.04))
+        .force("y", forceY<GNode>(0).strength(0.035))
         .force("link", linkForce)
         .alphaMin(0.02)
         .on("tick", () => setTick((t) => t + 1));
@@ -199,91 +196,77 @@ function KnowledgeGraphBase({ className }: { className?: string }) {
     }
   }, [sig]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       simRef.current?.stop();
       simRef.current = null;
       nodesRef.current = new Map();
-    };
-  }, []);
+    },
+    []
+  );
 
   const nodes = [...nodesRef.current.values()];
   const { w, h } = size;
 
   return (
-    <Panel
-      title="Knowledge graph"
-      right={<span className="chip num">{nodes.length} nodes</span>}
-      className={cn("lg:col-span-4", className)}
-      enterIndex={6}
-      bodyClassName="flex flex-col"
-    >
-      <div ref={containerRef} className="relative min-h-[240px] flex-1" onMouseLeave={() => setHover(null)}>
-        <svg
-          width={w}
-          height={h}
-          className="block h-full w-full"
-          role="img"
-          aria-label="Force-directed graph of goal, steps and evidence"
-        >
-          <defs>
-            <radialGradient id="kg-goal" cx="0.3" cy="0.25">
-              <stop offset="0" stopColor="#a5b4fc" />
-              <stop offset="1" stopColor="#6d28d9" />
-            </radialGradient>
-          </defs>
-          <g transform={`translate(${w / 2},${h / 2})`}>
-            {linksRef.current.map((link, i) => {
-              const s = nodesRef.current.get(linkSourceId(link));
-              const t = nodesRef.current.get(linkTargetId(link));
-              if (!s || !t || s.x === undefined || t.x === undefined) return null;
-              return (
-                <line
-                  key={`l${i}`}
-                  x1={s.x}
-                  y1={s.y}
-                  x2={t.x}
-                  y2={t.y}
-                  stroke="rgb(148 163 184 / .2)"
-                  strokeWidth={1}
+    <div className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2.5", className)}>
+      <div className="fill relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+        <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2">
+          <span className="live-dot" data-paused="false">
+            <Network size={11} className="shrink-0" />
+            GRAPH
+            <span className="num font-normal opacity-80">{nodes.length} nodes</span>
+          </span>
+        </div>
+
+        <div ref={containerRef} className="relative min-h-0 min-w-0 flex-1" onMouseLeave={() => setHover(null)}>
+          <svg width={w} height={h} className="block h-full w-full" role="img" aria-label="Force-directed graph of goal, steps and evidence">
+            <defs>
+              <radialGradient id="kg-goal" cx="0.3" cy="0.25">
+                <stop offset="0" stopColor="#a5b4fc" />
+                <stop offset="1" stopColor="#6d28d9" />
+              </radialGradient>
+            </defs>
+            <g transform={`translate(${w / 2},${h / 2})`}>
+              {linksRef.current.map((link, i) => {
+                const s = nodesRef.current.get(linkSourceId(link));
+                const t = nodesRef.current.get(linkTargetId(link));
+                if (!s || !t || s.x === undefined || t.x === undefined) return null;
+                return (
+                  <line key={`l${i}`} x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke="rgb(148 163 184 / .2)" strokeWidth={1.4} />
+                );
+              })}
+              {nodes.map((node) => (
+                <GraphNode
+                  key={node.id}
+                  node={node}
+                  onEnter={() => node.x !== undefined && setHover({ node, x: node.x, y: node.y ?? 0 })}
+                  onLeave={() => setHover((cur) => (cur?.node.id === node.id ? null : cur))}
+                  onOpen={node.evidenceId ? () => open(node.evidenceId as string) : undefined}
                 />
-              );
-            })}
-            {nodes.map((node) => (
-              <GraphNode
-                key={node.id}
-                node={node}
-                onEnter={() => node.x !== undefined && setHover({ node, x: node.x, y: node.y ?? 0 })}
-                onLeave={() => setHover((cur) => (cur?.node.id === node.id ? null : cur))}
-                onOpen={
-                  node.evidenceId
-                    ? () => open(node.evidenceId as string)
-                    : undefined
-                }
-              />
-            ))}
-          </g>
-        </svg>
-        <AnimatePresence>
-          {hover && <NodeTooltip node={hover.node} left={hover.x + w / 2} top={hover.y + h / 2} />}
-        </AnimatePresence>
-        {nodes.length <= 1 && (
-          <div className="absolute inset-0 grid place-items-center">
-            <p className="max-w-[260px] text-center text-[13px] leading-snug text-(--dim)">
-              The goal anchors the center; steps orbit it, and verified evidence blooms off its step.
-            </p>
-          </div>
-        )}
+              ))}
+            </g>
+          </svg>
+          <AnimatePresence>{hover && <NodeTooltip node={hover.node} left={hover.x + w / 2} top={hover.y + h / 2} />}</AnimatePresence>
+          {nodes.length <= 1 && (
+            <div className="absolute inset-0 grid place-items-center">
+              <p className="max-w-[300px] px-4 text-center text-[13px] leading-snug text-(--dim)">
+                Once the plan starts, the goal anchors the center; steps orbit it, and verified evidence blooms off its step.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="caption mt-2 flex shrink-0 flex-wrap items-center gap-3">
+
+      <div className="caption mt-2 flex shrink-0 flex-wrap items-center gap-3 px-1">
         <Legend color={VERDICT_COLOR.active} label="goal / active" shape="solid" />
         <Legend color={VERDICT_COLOR.done} label="done" shape="ring" />
         <Legend color={VERDICT_COLOR.retry} label="retry" shape="ring" />
         <Legend color={VERDICT_COLOR.replan} label="replan" shape="ring" />
         <Legend color={VERDICT_COLOR.queued} label="queued" shape="ring" />
-        <span className="ml-auto normal-case">click evidence · capped at 120 nodes</span>
+        <span className="faint ml-auto normal-case tracking-normal">click evidence to open · capped at 120 nodes</span>
       </div>
-    </Panel>
+    </div>
   );
 }
 
@@ -333,25 +316,12 @@ function GraphNode({
     >
       <motion.circle
         initial={{ scale: 0, opacity: 0 }}
-        animate={{
-          scale: 1,
-          opacity: node.type === "evidence" ? 0.95 : 1,
-        }}
+        animate={{ scale: 1, opacity: node.type === "evidence" ? 0.95 : 1 }}
         style={{ transformBox: "fill-box", transformOrigin: "center" } as CSSProperties}
         transition={spring}
         r={node.r}
-        fill={
-          node.type === "goal"
-            ? "url(#kg-goal)"
-            : node.verdict === "queued"
-              ? "transparent"
-              : VERDICT_COLOR[node.verdict]
-        }
-        stroke={
-          node.type === "goal"
-            ? undefined
-            : VERDICT_COLOR[node.verdict]
-        }
+        fill={node.type === "goal" ? "url(#kg-goal)" : node.verdict === "queued" ? "transparent" : VERDICT_COLOR[node.verdict]}
+        stroke={node.type === "goal" ? undefined : VERDICT_COLOR[node.verdict]}
         strokeWidth={node.type === "evidence" ? 1.1 : node.verdict === "queued" ? 1.6 : 1}
         strokeDasharray={node.verdict === "queued" ? "2 2.4" : undefined}
       />
@@ -382,11 +352,7 @@ function NodeTooltip({ node, left, top }: { node: GNode; left: number; top: numb
       style={{ left, top }}
     >
       <div className="caption">
-        {node.type === "goal"
-          ? "goal"
-          : node.type === "evidence"
-            ? `evidence ${node.evidenceId}`
-            : `step · ${node.verdict}`}
+        {node.type === "goal" ? "goal" : node.type === "evidence" ? `evidence ${node.evidenceId}` : `step · ${node.verdict}`}
       </div>
       <p className="mt-1 line-clamp-3 text-[12px] leading-snug text-(--text)">{node.label}</p>
       {node.evidenceId && (
@@ -417,48 +383,4 @@ function Legend({ color, label, shape }: { color: string; label: string; shape: 
   );
 }
 
-export const KnowledgeGraph = memo(KnowledgeGraphBase);
-
-function timelineHistoryEqual(
-  a: HistoryRecordLite[] | undefined,
-  b: HistoryRecordLite[] | undefined
-): boolean {
-  if (a === b) return true;
-  if (!a || !b || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (
-      a[i].instruction !== b[i].instruction ||
-      a[i].complete !== b[i].complete ||
-      a[i].verdict !== b[i].verdict ||
-      a[i].evidences.length !== b[i].evidences.length
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-const selectGoal = (s: Parameters<typeof selectTimeline>[0]) => s.data?.goal ?? "";
-type GraphState = Parameters<typeof selectTimeline>[0];
-
-const selectHistoryLite = (s: GraphState) => selectTimeline(s).history as HistoryRecordLite[];
-const selectPlanLite = (s: GraphState) => selectTimeline(s).plan as PlanStepLite[];
-const selectEvidenceIds = (s: GraphState) => selectEvidences(s) as { id: string }[];
-
-function stepsOnlyEqual(
-  a: PlanStepLite[] | undefined,
-  b: PlanStepLite[] | undefined
-): boolean {
-  if (a === b) return true;
-  if (!a || !b || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i].instruction !== b[i].instruction) return false;
-  }
-  return true;
-}
-
-function evidenceCountEqual(a: EvidenceCount, b: EvidenceCount): boolean {
-  return a.length === b.length;
-}
-
-type EvidenceCount = { id: string }[];
+export const GraphStage = memo(GraphStageBase);
