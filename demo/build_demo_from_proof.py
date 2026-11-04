@@ -36,6 +36,7 @@ RAW_DIR = OUT_DIR / "raw"
 
 IDLE_F = 16.0
 OUTRO_HOLD_S = 4.7        # seconds of the recorded closing card kept in the cut
+REPO = "https://github.com/roshanrateria/nexus"   # pushed; shown on the closing card
 
 
 def log(msg: str) -> None:
@@ -57,11 +58,15 @@ def pick_failed() -> tuple[dict, Path]:
     sys.exit("[demo-now] no run receipt with an existing raw webm")
 
 
-def write_outro_card(path: Path) -> None:
-    """Closing card in the same glass style; numbers transcribed from the
-    run's frames, disclosure line replaces the goal_achieved brag."""
+def write_outro_card(path: Path, repo: str) -> None:
+    """Closing card in the same glass style; repo from the owner's push,
+    numbers transcribed from the run's frames, watchdog disclosed."""
     bullets: list[str] = cards.load_bullets()
-    repo_block = '<div><span class="chip" style="color:#8b95a5">code: unpublished hackathon repo</span></div>'
+    repo = (repo or "").strip()
+    if repo:
+        repo_block = f'<div><span class="chip">{cards.html.escape(repo)}</span></div>'
+    else:
+        repo_block = '<div><span class="chip" style="color:#8b95a5">code: unpublished hackathon repo</span></div>'
     rows = "".join(f"<li>{cards.html.escape(t)}</li>" for t in bullets)
     body = (
         cards.LOGO.replace('<div class="logo">', '<div class="logo" style="animation:none">', 1)
@@ -156,7 +161,8 @@ def build_captions(marks: dict, segs: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda c: c["t_start"])
 
 
-def render(raw: Path, segs: list[dict], outro_webm: Path, srt_path: Path, out: Path, ffmpeg: str) -> None:
+def render(raw: Path, segs: list[dict], outro_webm: Path, out: Path, ffmpeg: str) -> None:
+    """Clean video (no burned captions; the .srt ships separately)."""
     parts = []
     for i, s in enumerate(segs):
         parts.append(
@@ -166,21 +172,10 @@ def render(raw: Path, segs: list[dict], outro_webm: Path, srt_path: Path, out: P
     n = len(segs)
     parts.append(f"[1:v]trim=duration={OUTRO_HOLD_S:.2f},setpts=(PTS-STARTPTS)/1.0[voutro]")
     concat_in = "".join(f"[v{i}]" for i in range(n)) + "[voutro]"
-    style = ("FontName=Segoe UI,FontSize=19,PrimaryColour=&H00FFFFFF,"
-             "OutlineColour=&HC8000000,BorderStyle=1,Outline=1.2,Shadow=1,MarginV=42")
-    # ffmpeg's subtitles filter splits on the first colon: keep the path
-    # relative (no drive colon ahead), escaping any residual colon
-    srt_arg = srt_path
-    try:
-        srt_arg = srt_path.relative_to(Path.cwd())
-    except ValueError:
-        srt_arg = srt_arg
-    srt_str = srt_arg.as_posix().replace(":", r"\:")
     graph = (
         ";".join(parts)
         + f";{concat_in}concat=n={n + 1}:v=1:a=0[vc];"
-        + "[vc]fps=30,scale=1920:1080:flags=lanczos,format=yuv420p,"
-        + f"subtitles={srt_str}:force_style='{style}'[vout]"
+        + "[vc]fps=30,scale=1920:1080:flags=lanczos,format=yuv420p[vout]"
     )
     command = [ffmpeg, "-y", "-i", str(raw), "-i", str(outro_webm),
                "-filter_complex", graph, "-map", "[vout]",
@@ -202,7 +197,7 @@ def main() -> None:
     cards_dir = OUT_DIR / "cards"
     cards_dir.mkdir(exist_ok=True)
     outro_html_path = cards_dir / "outro_proof.html"
-    write_outro_card(outro_html_path)
+    write_outro_card(outro_html_path, REPO)
     outro_webm = record_card(outro_html_path, OUTRO_HOLD_S + 1.6)
     log(f"closing card recorded: {outro_webm.name}")
 
@@ -219,7 +214,7 @@ def main() -> None:
     log(f"srt: {srt_path} ({cues} cues)")
 
     out = OUT_DIR / "nexus_demo.mp4"
-    render(raw, segs, outro_webm, srt_path, out, ffmpeg)
+    render(raw, segs, outro_webm, out, ffmpeg)
 
     (OUT_DIR / "demo_timeline.json").write_text(json.dumps(
         {"video": str(out), "raw": str(raw), "idle_speed_f": IDLE_F,
