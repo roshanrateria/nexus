@@ -34,7 +34,12 @@ flowchart LR
 
 ## Quickstart
 
-Prereqs: Python 3.13+, Node 20+ (for the UI build), Chromium (`playwright install chromium`).
+Prereqs: Playwright-E2E:
+
+```bash
+python scripts/ui_check.py     # Playwright 1920x1080 over the built UI: composer -> live plan/evidence/report + zero console errors
+```
+Python 3.13+, Node 20+ (for the UI build), Chromium (`python -m playwright install chromium`).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate      # or .venv\Scripts\activate on Windows
@@ -143,6 +148,10 @@ Per task the bench records success, wall seconds, steps, planner calls and the f
 
 ## Built during the hackathon
 
-<!-- fill in your own bullets before submitting -->
-- 
-- 
+All commits from `73f613f` (T0) onward landed during this hackathon on top of the baseline (`257b5e2`):
+
+- T0–T5: honest-browser hygiene (robots.txt + `run_javascript` gates, untrusted-content rule), OpenAI-compatible provider swap with the Privacy Ledger core, verdict routing with local retries, deterministic evidence checks against verbatim page text, hub ledger wiring, per-run screenshots with stable evidence ids cited end-to-end
+- T6–T8 / I1–I8: validated server API, long-lived serve mode, run control (`POST /run`, `/cancel`, `/health`), error/escalation/evidence-check handling in the hub, single-process deployment (static UI served by `runner.py`), MissionComposer, contract guard, quickstart docs, encoding-hardened run logging
+- K1–K7: one-secret config (`MODEL_API_KEY` only), mode auto-detect (cloud-only vs hybrid), preflight + smoke probes, evidence matching without false rejections (NFKC + typography folding), `muse-spark-1.3` cost ledger surfaced in the UI, deduped sites-visited tracking, contract + docs sync
+- FE1–FE3: screenshot harness, mode-aware state/demo layer, fixed-grid mission-control layout (Live/Report/Graph stages, keyboard tabs)
+- X1–X9 (the QA pass behind this submission): contract check, real-API smoke (14 checks), 11-gate run checker with cost/timeout cancels, Playwright E2E over the built UI (9 gates, zero console errors), fresh-clone test, secret-hygiene scan, committed `web/out` so judges need no Node
