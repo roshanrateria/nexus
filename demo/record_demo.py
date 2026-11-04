@@ -330,9 +330,11 @@ class Attempt:
                 page.wait_for_timeout(400)
 
             # -- real typing ------------------------------------------------
+            # long goals type a bit faster so the 1x pre-run scene stays short
+            typed_delay = 28.0 if len(args.goal) <= 300 else 14.0
             x, y = self.move_to(page, page.get_by_test_id("composer-input"), steps=35)
             page.mouse.click(x, y)
-            page.keyboard.type(args.goal, delay=28)
+            page.keyboard.type(args.goal, delay=typed_delay)
             start_button = page.get_by_test_id("composer-start")
             for _ in range(60):  # hydration / controlled-input settle
                 if start_button.is_enabled():
