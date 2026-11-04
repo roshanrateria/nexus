@@ -224,7 +224,7 @@ Submitted via the Cerebral Valley platform (primary judging artifact), built wit
 
 ## Built during the hackathon
 
-All commits from `73f613f` (T0) onward landed during this hackathon on top of the baseline (`257b5e2`):
+All commits from `9e6a7eb` (T0) onward landed during this hackathon on top of the baseline (`07f6d47`):
 
 - T0–T5: honest-browser hygiene (robots.txt + `run_javascript` gates, untrusted-content rule), OpenAI-compatible provider swap with the Privacy Ledger core, verdict routing with local retries, deterministic evidence checks against verbatim page text, hub ledger wiring, per-run screenshots with stable evidence ids cited end-to-end
 - T6–T8 / I1–I8: validated server API, long-lived serve mode, run control (`POST /run`, `/cancel`, `/health`), error/escalation/evidence-check handling in the hub, single-process deployment (static UI served by `runner.py`), MissionComposer, contract guard, quickstart docs, encoding-hardened run logging
