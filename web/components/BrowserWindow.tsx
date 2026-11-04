@@ -132,6 +132,7 @@ function ShotStage({ src, children }: { src: string | null; children?: ReactNode
     <div
       ref={boxRef}
       className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-[16px] border border-(--line) bg-[#05070e]"
+      data-testid="browser-frame"
     >
       {src ? <LayeredShot src={src} box={box} /> : <EmptyShot measured={box.w > 0} />}
       {children}

@@ -49,7 +49,7 @@ function StepStat({ values }: { values: Stats }) {
 
 function CostStat({ cost }: { cost: number | null }) {
   return (
-    <StatCard icon={<Wallet size={12} />} label="Cost">
+    <StatCard icon={<Wallet size={12} />} label="Cost" testId="stat-cost">
       {cost === null || cost === undefined ? (
         <span className="text-[20px] font-semibold leading-none text-(--faint)">n/a</span>
       ) : (
@@ -62,14 +62,16 @@ function CostStat({ cost }: { cost: number | null }) {
 function StatCard({
   icon,
   label,
+  testId,
   children,
 }: {
   icon: ReactNode;
   label: string;
+  testId?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="fill flex min-w-0 flex-col justify-center gap-1.5 px-3.5 py-2">
+    <div className="fill flex min-w-0 flex-col justify-center gap-1.5 px-3.5 py-2" data-testid={testId}>
       <span className="caption flex items-center gap-1.5 text-[9.5px]!">
         {icon}
         {label}

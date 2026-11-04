@@ -23,6 +23,7 @@ function PrivacyLedgerBase({ className }: { className?: string }) {
       className={className}
       bodyClassName="flex flex-col gap-2.5"
       scroll={false}
+      testId="ledger"
     >
       {/* headline number: screenshots to cloud */}
       <HeadlineRow

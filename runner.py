@@ -506,6 +506,11 @@ def make_handler(hub: Hub, control: RunControl):
             if candidate.is_dir():
                 candidate = candidate / "index.html"
             if not candidate.is_file():
+                # Browsers probe for /favicon.ico unconditionally; answer with
+                # the app's own icon so it never shows up as a console error.
+                if Path(rel).name == "favicon.ico" and (WEB_OUT / "icon.svg").is_file():
+                    self._send(200, "image/svg+xml", (WEB_OUT / "icon.svg").read_bytes())
+                    return
                 self._send(404, "text/plain", b"not found")
                 return
             ctype = STATIC_TYPES.get(candidate.suffix.lower())

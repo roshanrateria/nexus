@@ -45,6 +45,7 @@ function SitesVisitedBase({ className }: { className?: string }) {
       className={className}
       bodyClassName="flex flex-col"
       scroll
+      testId="sites-list"
     >
       {sites.length === 0 ? (
         <PanelEmpty

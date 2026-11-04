@@ -120,6 +120,7 @@ function ReportPanelBase({ className }: { className?: string }) {
         <div
           ref={bodyRef}
           className={cn("md-read scroll mx-auto min-h-0 w-full flex-1 overflow-y-auto pr-2", reporting && "caret")}
+          data-testid="report-body"
         >
           <ReportMarkdown text={report} />
         </div>

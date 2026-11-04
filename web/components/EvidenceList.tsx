@@ -63,6 +63,7 @@ function EvidenceCard({
       onClick={onOpen}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      data-testid="evidence-card"
       className={cn(
         "row-card block w-full cursor-pointer overflow-hidden p-0 text-left",
         "focus-visible:outline-2 focus-visible:outline-(--focus)"

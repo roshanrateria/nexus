@@ -176,6 +176,7 @@ export function EvidenceChip({ id }: { id: string }) {
   return (
     <button
       type="button"
+      data-testid="evidence-chip"
       onClick={(e) => {
         e.stopPropagation();
         open(id);

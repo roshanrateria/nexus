@@ -1,4 +1,5 @@
 import type {
+  Bucket,
   Evidence,
   HistoryRecord,
   Ledger,
@@ -70,18 +71,22 @@ function uniqueHosts(urls: (string | undefined)[]): string[] {
 
 export function selectPrivacy(s: StoreState) {
   const d = s.data;
+  // The hub seeds an empty ledger ({}) until the first snapshot arrives, so
+  // every bucket read must survive undefined (a crash here kills hydration).
+  const cloud: Partial<Bucket> = d?.ledger?.cloud ?? {};
+  const open: Partial<Bucket> = d?.ledger?.open ?? {};
   return {
     mode: d?.mode,
-    imagesOut: d?.ledger?.cloud.images_out ?? 0,
+    imagesOut: cloud.images_out ?? 0,
     share: d?.ledger?.open_token_share ?? 0,
     plannerCalls: d?.ledger?.planner_calls ?? 0,
     steps: d?.history.length ?? 0,
-    cloudCalls: d?.ledger?.cloud.calls ?? 0,
-    cloudTokens: (d?.ledger?.cloud.prompt_tokens ?? 0) + (d?.ledger?.cloud.completion_tokens ?? 0),
-    cloudBytes: d?.ledger?.cloud.bytes_out ?? 0,
-    openCalls: d?.ledger?.open.calls ?? 0,
-    openTokens: (d?.ledger?.open.prompt_tokens ?? 0) + (d?.ledger?.open.completion_tokens ?? 0),
-    openBytes: d?.ledger?.open.bytes_out ?? 0,
+    cloudCalls: cloud.calls ?? 0,
+    cloudTokens: (cloud.prompt_tokens ?? 0) + (cloud.completion_tokens ?? 0),
+    cloudBytes: cloud.bytes_out ?? 0,
+    openCalls: open.calls ?? 0,
+    openTokens: (open.prompt_tokens ?? 0) + (open.completion_tokens ?? 0),
+    openBytes: open.bytes_out ?? 0,
   };
 }
 

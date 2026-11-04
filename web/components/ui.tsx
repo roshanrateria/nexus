@@ -85,7 +85,7 @@ export function StatusDot({ pulse, color }: { pulse?: boolean; color: string }) 
 export function StatusPill({ info, className }: { info: StatusInfo; className?: string }) {
   const color = TONE_COLOR[info.tone];
   return (
-    <span className={cn("pill", className)} style={{ "--tone": color } as CSSProperties}>
+    <span className={cn("pill", className)} style={{ "--tone": color } as CSSProperties} data-testid="status-pill">
       <StatusDot pulse={info.pulse} color={color} />
       <span className="truncate">{info.label}</span>
     </span>
@@ -255,13 +255,15 @@ export interface PanelProps {
   bodyClassName?: string;
   /** Body scrolls internally (thin scrollbar); false for auto content. */
   scroll?: boolean;
+  /** data-testid hook for E2E checks; attribute only, no styling. */
+  testId?: string;
   children: ReactNode;
 }
 
-export function Panel({ title, count, action, className, bodyClassName, scroll = true, children }: PanelProps) {
+export function Panel({ title, count, action, className, bodyClassName, scroll = true, testId, children }: PanelProps) {
   const hasHeader = Boolean(title) || count !== undefined || Boolean(action);
   return (
-    <section className={cn("fill relative flex min-h-0 min-w-0 flex-col overflow-hidden p-4", className)}>
+    <section data-testid={testId} className={cn("fill relative flex min-h-0 min-w-0 flex-col overflow-hidden p-4", className)}>
       {hasHeader && (
         <header className="mb-3 flex shrink-0 items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">

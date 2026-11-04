@@ -93,6 +93,7 @@ export function MissionComposer({ className }: Props) {
           disabled={blocked}
           placeholder="Describe a goal for the agent…  Ctrl/⌘+Enter to start"
           aria-label="Mission goal"
+          data-testid="composer-input"
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKeyDown}
         />
@@ -129,6 +130,7 @@ export function MissionComposer({ className }: Props) {
             onClick={submit}
             className="composer-start"
             title="Start the run"
+            data-testid="composer-start"
           >
             <Sparkle size={13} />
             {busy ? "Agent working…" : sending ? "Starting…" : "Start"}

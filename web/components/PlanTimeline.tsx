@@ -111,6 +111,7 @@ function TimelineRow({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={enter}
+      data-testid="plan-step"
     >
       <button
         type="button"
