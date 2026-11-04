@@ -1,0 +1,296 @@
+{
+  "t0": "2026-11-05 01:13:04",
+  "attempt": 1,
+  "goal": "Case study: between 2020 and 2025, did global chip manufacturing genuinely become less concentrated around Taiwan and East Asia? Visit at least 3 credible sources directly, preferring government, industry-association, or annual-report pages. Collect quantitative data and verbatim quotes with source URLs, then answer the question with three key conclusions and one unresolved question. Keep the investigation tight - 3 sources is enough. Trace every significant claim to evidence; never invent statistics or citations.",
+  "mode": "cloud",
+  "scenes": {
+    "recording_start": 0.0,
+    "intro": [
+      0.0,
+      3.32
+    ],
+    "dashboard": [
+      4.35,
+      null
+    ],
+    "start_click_armed": 26.45,
+    "start_click": 31.51,
+    "run_started": 31.53,
+    "recording_end": 331.78
+  },
+  "captions": [
+    {
+      "text": "Give it a goal. It does the rest.",
+      "t_start": 4.35,
+      "t_end": 7.95
+    },
+    {
+      "text": "Planner (text only) splits the goal into steps",
+      "t_start": 64.51,
+      "t_end": 68.11
+    },
+    {
+      "text": "Cloud-only mode: all roles run on Muse Spark 1.3",
+      "t_start": 73.78,
+      "t_end": 77.38
+    },
+    {
+      "text": "Every quote is checked verbatim against the page",
+      "t_start": 184.71,
+      "t_end": 188.31
+    }
+  ],
+  "idle_intervals": [
+    {
+      "start": 34.08,
+      "end": 64.01
+    },
+    {
+      "start": 75.27,
+      "end": 81.54
+    },
+    {
+      "start": 84.56,
+      "end": 97.49
+    },
+    {
+      "start": 104.12,
+      "end": 108.84
+    },
+    {
+      "start": 111.88,
+      "end": 116.07
+    },
+    {
+      "start": 125.8,
+      "end": 130.0
+    },
+    {
+      "start": 135.61,
+      "end": 139.79
+    },
+    {
+      "start": 149.03,
+      "end": 160.4
+    },
+    {
+      "start": 162.4,
+      "end": 184.21
+    },
+    {
+      "start": 197.1,
+      "end": 203.34
+    },
+    {
+      "start": 206.38,
+      "end": 215.71
+    },
+    {
+      "start": 217.72,
+      "end": 221.86
+    },
+    {
+      "start": 231.6,
+      "end": 238.86
+    },
+    {
+      "start": 246.06,
+      "end": 249.73
+    },
+    {
+      "start": 257.41,
+      "end": 262.13
+    },
+    {
+      "start": 267.22,
+      "end": 272.45
+    },
+    {
+      "start": 280.13,
+      "end": 285.35
+    },
+    {
+      "start": 289.41,
+      "end": 294.12
+    },
+    {
+      "start": 297.68,
+      "end": 305.47
+    },
+    {
+      "start": 307.48,
+      "end": 311.65
+    },
+    {
+      "start": 322.95
+    }
+  ],
+  "console_errors": [],
+  "trigger_log": [
+    {
+      "t": 37.73,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 64.51,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 78.94,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 82.04,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 88.21,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 97.99,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 107.8,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 109.35,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 115.54,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 116.57,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 129.47,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 130.5,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 139.26,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 140.29,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 152.68,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 160.9,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 166.05,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 184.71,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 200.76,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 203.84,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 210.01,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 216.22,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 221.32,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 222.36,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 235.27,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 239.37,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 249.71,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 250.24,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 261.07,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 262.63,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 270.88,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 272.95,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 283.78,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 285.85,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 293.07,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 294.62,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 301.34,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 305.98,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 311.11,
+      "event": "idle >= 5s -> time-lapse on"
+    },
+    {
+      "t": 312.15,
+      "event": "state changed -> time-lapse off"
+    },
+    {
+      "t": 326.62,
+      "event": "idle >= 5s -> time-lapse on"
+    }
+  ],
+  "video": "demo\\out\\raw\\dash_011838_a1.webm"
+}

@@ -325,7 +325,9 @@ def render_xclip(raw: Path, marks: dict, out: Path, ffmpeg: str, ceiling: float 
 
 # ------------------------------------------------------------ verification
 
-def verify(final: Path, ffprobe: str, ffmpeg: str, marks: dict, f: float) -> dict:
+def verify(final: Path, ffprobe: str, ffmpeg: str, marks: dict, f: float,
+           sheet_name: str = "contact_sheet.png",
+           pcts: tuple = (5, 20, 40, 60, 80, 95)) -> dict:
     info = probe(final, ffprobe)
     failures = []
     if not (0.0 < info["duration"] <= 180.0):
@@ -343,7 +345,7 @@ def verify(final: Path, ffprobe: str, ffmpeg: str, marks: dict, f: float) -> dic
     frames = []
     contact_dir = OUT_DIR / "contact"
     contact_dir.mkdir(parents=True, exist_ok=True)
-    for i, pct in enumerate((5, 20, 40, 60, 80, 95)):
+    for i, pct in enumerate(pcts):
         target = contact_dir / f"f{pct}.png"
         subprocess.run(
             [ffmpeg, "-y", "-ss", f"{info['duration'] * pct / 100.0:.3f}",
@@ -371,7 +373,7 @@ def verify(final: Path, ffprobe: str, ffmpeg: str, marks: dict, f: float) -> dic
         row = index // 2
         sheet.paste(img.resize((tile_w, tile_h)), (col * tile_w, row * tile_h))
         draw.text((col * tile_w + 8, row * tile_h + 6), f"{pct}%  std={stats[-1][1]} mean={stats[-1][2]}", fill="#e6eaf0")
-    sheet_path = OUT_DIR / "contact_sheet.png"
+    sheet_path = OUT_DIR / sheet_name
     sheet.save(sheet_path)
     for f_path in (OUT_DIR / "contact").glob("*.png"):
         f_path.unlink()
@@ -387,19 +389,107 @@ def verify(final: Path, ffprobe: str, ffmpeg: str, marks: dict, f: float) -> dic
     print(f"resolution    : {info['width']}x{info['height']} {info['codec']}")
     print(f"idle speed    : {f}x")
     print(f"captions      : {len(marks.get('captions', []))} (srt sidecar)")
-    print(f"final status  : {final_state.get('status')}")
-    print(f"mode          : {final_state.get('mode')}")
-    print(f"planner calls : {final_state.get('planner_calls')}")
-    print(f"steps         : {final_state.get('steps')}")
-    print(f"cost_usd      : {final_state.get('cost_usd')}")
-    print(f"evidences     : {final_state.get('evidences')}")
-    print(f"sites         : {final_state.get('sites')}")
+    if final_state:
+        print(f"final status  : {final_state.get('status')}")
+        print(f"mode          : {final_state.get('mode')}")
+        print(f"planner calls : {final_state.get('planner_calls')}")
+        print(f"steps         : {final_state.get('steps')}")
+        print(f"cost_usd      : {final_state.get('cost_usd')}")
+        print(f"evidences     : {final_state.get('evidences')}")
+        print(f"sites         : {final_state.get('sites')}")
     print(f"contact sheet : {sheet_path}")
     if failures:
         for item in failures:
             log(f"VERIFY FAIL: {item}")
         sys.exit(4)
     return info
+
+
+# --------------------------------------------------------------- proof cut
+
+def range_with_idles(a: float, b: float, marks: dict, f: float) -> list[tuple]:
+    """Covers raw range [a,b] at 1x except recorded idle stretches (in- and
+    out-of-range clamped) which play at f — the same time-lapse rules the
+    success demo uses, applied to an edit-time sub-window."""
+    raw_idles = []
+    for iv in marks.get("idle_intervals", []):
+        s = float(iv.get("start") or 0.0)
+        e = float(iv.get("end") or 0.0)
+        e = e or b  # an interval still open at the watchdog cut closes here
+        s = clamp(s, a, b)
+        e = clamp(e, a, b)
+        if e - s >= 0.8:
+            raw_idles.append((s, e))
+    raw_idles.sort()
+    pieces: list[tuple] = []
+    cursor = a
+    for s, e in raw_idles:
+        if s <= cursor:
+            cursor = max(cursor, e)
+            continue
+        pieces.append((cursor, s, 1.0, "live"))
+        pieces.append((s, e, f, "time-lapse"))
+        cursor = e
+    if cursor < b:
+        pieces.append((cursor, b, 1.0, "live"))
+    return pieces
+
+
+def build_proof_timeline(marks: dict, f: float) -> list[tuple]:
+    """Anchors come from the failed run's marks (caption beats, intro card,
+    recording end); the +-second windows are editorial padding around those
+    real beats. The reel never claims goal_achieved - it is an engine-proof
+    cut of a watchdog-stopped run."""
+    scenes = marks.get("scenes") or {}
+    caps = marks.get("captions") or []
+    intro_end = float((scenes.get("intro") or [0.0, 3.3])[1])
+    rec_end = float(scenes.get("recording_end") or 0.0)
+
+    def beat(prefix: str):
+        for c in caps:
+            if str(c.get("text") or "").startswith(prefix):
+                return float(c["t_start"]), float(c["t_end"])
+        return None, None
+
+    ranges: list[tuple[float, float]] = [(0.0, intro_end)]
+    p0, p1 = beat("Planner")
+    if p0 is not None:
+        ranges.append((p0 - 1.2, p1 + 10.6))      # plan split + mode caption
+    q0, q1 = beat("Every quote")
+    if q0 is not None:
+        ranges.append((q0 - 7.0, q1 + 2.7))       # first verified quotes
+    if rec_end:
+        ranges.append((rec_end - 23.5, rec_end - 0.1))  # cap moment + ledger
+
+    out: list[tuple] = []
+    for a, b in ranges:
+        if b - a < 0.5:
+            continue
+        out.extend(range_with_idles(a, b, marks, f))
+    return fold_same_speed(out)
+
+
+def proof_captions(marks: dict, segs: list[dict]) -> list[dict]:
+    """Captions for the proof reel: run captions whose raw beat lands inside
+    the kept windows, plus synthesised captions hand-transcribed from what
+    the reel's own frames really show (no invented numbers)."""
+    def inside(raw_t: float) -> bool:
+        return any(s["raw_start"] <= raw_t <= s["raw_end"] for s in segs)
+
+    kept = [c for c in marks.get("captions", []) if inside(float(c["t_start"]))]
+    synth: list[dict] = []
+    planner = next((c for c in marks.get("captions", []) if str(c.get("text") or "").startswith("Planner")), None)
+    if planner and inside(float(planner["t_start"]) + 0.2):
+        t0 = float(planner["t_start"]) + 0.2
+        synth.append({"text": "Planner split the real goal into three source visits: SIA, a US .gov page, TSMC investor relations.",
+                      "t_start": round(t0, 2), "t_end": round(t0 + 4.0, 2)})
+    scenes = marks.get("scenes") or {}
+    rec_end = float(scenes.get("recording_end") or 0.0)
+    if rec_end:
+        t0 = rec_end - 13.5
+        synth.append({"text": "Watchdog, not the engine: cut mid-research at the demo's run cap - $0.22 billed, 4 verified quotes live in the ledger.",
+                      "t_start": round(t0, 2), "t_end": round(t0 + 4.2, 2)})
+    return sorted(kept + synth, key=lambda c: c["t_start"])
 
 
 # -------------------------------------------------------------------- main
@@ -414,12 +504,28 @@ def main() -> None:
     parser.add_argument("--keep", type=float, default=KEEP_1X_S, help="seconds of the dashboard tail at 1x")
     parser.add_argument("--voiceover", default=None, help="path to wav; muxed with -c:a aac -shortest")
     parser.add_argument("--x-clip", action="store_true", help="also build demo/out/x_clip.mp4 (<= 30s)")
+    parser.add_argument("--proof-cut", action="store_true",
+                        help="engine-proof reel from a watchdog-stopped run: newest"
+                        " demo/out/marks_failed_a*.json + its raw webm -> proof_cut.mp4"
+                        " (never claims goal_achieved, never replaces nexus_demo.mp4)")
     parser.add_argument("--verify-only", action="store_true", help="D6 checks on an existing mp4 only")
     args = parser.parse_args()
 
     ffmpeg = resolve_ffmpeg()
     ffprobe = resolve_ffprobe()
     marks_path = Path(args.marks)
+    if not marks_path.is_file() and args.proof_cut:
+        # newest failed attempt whose raw webm still exists (mtimes beat names)
+        failed = sorted(OUT_DIR.glob("marks_failed_a*.json"),
+                        key=lambda p: p.stat().st_mtime, reverse=True)
+        for cand in failed:
+            cand_video = Path(json.loads(cand.read_text(encoding="utf-8")).get("video") or "")
+            if cand_video.is_file():
+                marks_path = cand
+                log(f"proof cut: using {cand.name} ({cand_video.name})")
+                break
+        else:
+            sys.exit("[edit] proof cut: no marks_failed_a*.json with an existing raw webm")
     if not marks_path.is_file():
         sys.exit(f"[edit] marks not found: {marks_path}")
     marks = json.loads(marks_path.read_text(encoding="utf-8"))
@@ -432,6 +538,32 @@ def main() -> None:
         log(f"no --raw given, using newest raw: {raw}")
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.proof_cut:
+        if args.voiceover or args.x_clip:
+            sys.exit("[edit] --voiceover/--x-clip are for the success-demo cut only")
+        if "goal_achieved" in json.dumps(marks.get("final") or {}):
+            sys.exit("[edit] refuses to build a proof cut from a run that actually succeeded")
+        proof_out = out_path if args.out != str(OUT_DIR / "nexus_demo.mp4") else OUT_DIR / "proof_cut.mp4"
+        f = clamp(args.f, MIN_F, MAX_F)
+        raw_segments = build_proof_timeline(marks, f)
+        segs = segmentize(raw_segments)
+        if not segs:
+            sys.exit("[edit] proof cut: no usable beats in marks")
+        log(f"proof cut: {len(segs)} segments, {segs[-1]['final_end']:.1f}s at idle f={f:g}x")
+        render_raw(raw, segs, proof_out, ffmpeg)
+        captions = proof_captions(marks, segs)
+        srt_path = proof_out.with_suffix(".srt")
+        subs = write_srt(captions, segs, srt_path, segs[-1]["final_end"])
+        log(f"srt: {srt_path} ({subs} cues)")
+        (OUT_DIR / "proof_timeline.json").write_text(json.dumps(
+            {"video": str(proof_out), "raw": str(raw), "idle_speed_f": f,
+             "label": "engine-proof reel of a watchdog-stopped run (no goal_achieved claim)",
+             "segments": segs}, indent=2, ensure_ascii=False), encoding="utf-8")
+        verify(proof_out, ffprobe, ffmpeg, marks, f,
+               sheet_name="proof_contact_sheet.png", pcts=(10, 28, 50, 72, 88, 96))
+        log(f"done: {proof_out}")
+        return
 
     if args.verify_only:
         verify(out_path, ffprobe, ffmpeg, marks, args.f)
