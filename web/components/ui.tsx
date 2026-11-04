@@ -303,6 +303,8 @@ export interface SegOption {
   id: string;
   label: string;
   hotkey?: string;
+  /** data-testid hook for E2E checks; attribute only, no styling. */
+  testId?: string;
 }
 
 export function Segmented({
@@ -324,6 +326,7 @@ export function Segmented({
           type="button"
           role="tab"
           data-active={option.id === value}
+          data-testid={option.testId}
           aria-selected={option.id === value}
           onClick={() => onChange(option.id)}
           title={option.hotkey ? `${option.label} (${option.hotkey})` : option.label}

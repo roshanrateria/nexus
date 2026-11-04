@@ -18,12 +18,13 @@ interface SegmentOptions {
   id: StageTab;
   label: string;
   hotkey: string;
+  testId: string;
 }
 
 const TAB_OPTIONS: SegmentOptions[] = [
-  { id: "live", label: "Live", hotkey: "1" },
-  { id: "report", label: "Report", hotkey: "2" },
-  { id: "graph", label: "Graph", hotkey: "3" },
+  { id: "live", label: "Live", hotkey: "1", testId: "tab-live" },
+  { id: "report", label: "Report", hotkey: "2", testId: "tab-report" },
+  { id: "graph", label: "Graph", hotkey: "3", testId: "tab-graph" },
 ];
 
 function CenterColumnBase({ className }: { className?: string }) {
