@@ -653,7 +653,7 @@ def main() -> None:
             log(f"=== attempt {attempt_no}/{args.attempts} ===")
             ok, reason = False, "crashed"
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True, args=["--hide-scrollbars"])
+                browser = playwright.chromium.launch(headless=False, args=["--hide-scrollbars"])
                 try:
                     ok, reason = attempt.run(browser)
                 except Exception as error:  # a scene crash must still keep the raw video + marks

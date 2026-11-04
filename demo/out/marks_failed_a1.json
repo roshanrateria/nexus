@@ -1,296 +1,289 @@
 {
-  "t0": "2026-11-05 01:13:04",
+  "t0": "2026-11-05 02:35:28",
   "attempt": 1,
-  "goal": "Case study: between 2020 and 2025, did global chip manufacturing genuinely become less concentrated around Taiwan and East Asia? Visit at least 3 credible sources directly, preferring government, industry-association, or annual-report pages. Collect quantitative data and verbatim quotes with source URLs, then answer the question with three key conclusions and one unresolved question. Keep the investigation tight - 3 sources is enough. Trace every significant claim to evidence; never invent statistics or citations.",
+  "goal": "Case study: has chip manufacturing really begun to diversify beyond Taiwan and East Asia since 2020? Visit credible sources like nist or semiconductors.org directly (DO NOT USE GOOGLE SEARCH OR ANY other WEB SEARCH). Never invent statistics or citations. IF stuck with captchas or other blocker either hit a different website ( 2 times only ) OR mention it clearly in the report.",
   "mode": "cloud",
   "scenes": {
     "recording_start": 0.0,
     "intro": [
       0.0,
-      3.32
+      7.19
     ],
     "dashboard": [
-      4.35,
+      8.88,
       null
     ],
-    "start_click_armed": 26.45,
-    "start_click": 31.51,
-    "run_started": 31.53,
-    "recording_end": 331.78
+    "start_click_armed": 22.34,
+    "start_click": 23.19,
+    "run_started": 23.21,
+    "recording_end": 323.56
   },
   "captions": [
     {
       "text": "Give it a goal. It does the rest.",
-      "t_start": 4.35,
-      "t_end": 7.95
+      "t_start": 8.88,
+      "t_end": 12.48
     },
     {
       "text": "Planner (text only) splits the goal into steps",
-      "t_start": 64.51,
-      "t_end": 68.11
+      "t_start": 39.63,
+      "t_end": 43.23
     },
     {
       "text": "Cloud-only mode: all roles run on Muse Spark 1.3",
-      "t_start": 73.78,
-      "t_end": 77.38
+      "t_start": 47.85,
+      "t_end": 51.45
     },
     {
       "text": "Every quote is checked verbatim against the page",
-      "t_start": 184.71,
-      "t_end": 188.31
+      "t_start": 103.1,
+      "t_end": 106.7
     }
   ],
   "idle_intervals": [
     {
-      "start": 34.08,
-      "end": 64.01
+      "start": 25.76,
+      "end": 39.12
     },
     {
-      "start": 75.27,
-      "end": 81.54
+      "start": 49.34,
+      "end": 71.83
     },
     {
-      "start": 84.56,
-      "end": 97.49
+      "start": 74.86,
+      "end": 88.69
     },
     {
-      "start": 104.12,
-      "end": 108.84
+      "start": 90.69,
+      "end": 102.59
     },
     {
-      "start": 111.88,
-      "end": 116.07
+      "start": 114.84,
+      "end": 121.51
     },
     {
-      "start": 125.8,
-      "end": 130.0
+      "start": 124.56,
+      "end": 132.83
     },
     {
-      "start": 135.61,
-      "end": 139.79
+      "start": 138.43,
+      "end": 144.67
     },
     {
-      "start": 149.03,
-      "end": 160.4
+      "start": 148.21,
+      "end": 153.41
     },
     {
-      "start": 162.4,
-      "end": 184.21
+      "start": 159.01,
+      "end": 163.72
     },
     {
-      "start": 197.1,
-      "end": 203.34
+      "start": 166.27,
+      "end": 188.39
     },
     {
-      "start": 206.38,
-      "end": 215.71
+      "start": 190.4,
+      "end": 206.4
     },
     {
-      "start": 217.72,
-      "end": 221.86
+      "start": 208.93,
+      "end": 216.22
     },
     {
-      "start": 231.6,
-      "end": 238.86
+      "start": 218.22,
+      "end": 223.42
     },
     {
-      "start": 246.06,
-      "end": 249.73
+      "start": 226.47,
+      "end": 231.67
     },
     {
-      "start": 257.41,
-      "end": 262.13
+      "start": 235.23,
+      "end": 252.23
     },
     {
-      "start": 267.22,
-      "end": 272.45
+      "start": 259.55,
+      "end": 268.38
     },
     {
-      "start": 280.13,
-      "end": 285.35
+      "start": 271.41,
+      "end": 281.21
     },
     {
-      "start": 289.41,
-      "end": 294.12
+      "start": 286.33,
+      "end": 294.1
     },
     {
-      "start": 297.68,
-      "end": 305.47
+      "start": 297.14,
+      "end": 307.02
     },
     {
-      "start": 307.48,
-      "end": 311.65
-    },
-    {
-      "start": 322.95
+      "start": 312.67,
+      "end": 322.02
     }
   ],
   "console_errors": [],
   "trigger_log": [
     {
-      "t": 37.73,
+      "t": 29.41,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 64.51,
+      "t": 39.63,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 78.94,
+      "t": 52.96,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 82.04,
+      "t": 72.34,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 88.21,
+      "t": 78.46,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 97.99,
+      "t": 89.19,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 107.8,
+      "t": 94.37,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 109.35,
+      "t": 103.1,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 115.54,
+      "t": 118.44,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 116.57,
+      "t": 122.03,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 129.47,
+      "t": 128.19,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 130.5,
+      "t": 133.34,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 139.26,
+      "t": 142.07,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 140.29,
+      "t": 145.19,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 152.68,
+      "t": 151.87,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 160.9,
+      "t": 153.92,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 166.05,
+      "t": 162.66,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 184.71,
+      "t": 164.24,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 200.76,
+      "t": 169.93,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 203.84,
+      "t": 188.9,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 210.01,
+      "t": 194.03,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 216.22,
+      "t": 206.91,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 221.32,
+      "t": 212.58,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 222.36,
+      "t": 216.72,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 235.27,
+      "t": 221.88,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 239.37,
+      "t": 223.94,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 249.71,
+      "t": 230.1,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 250.24,
+      "t": 232.19,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 261.07,
+      "t": 238.92,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 262.63,
+      "t": 252.92,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 270.88,
+      "t": 263.17,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 272.95,
+      "t": 268.89,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 283.78,
+      "t": 275.06,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 285.85,
+      "t": 281.72,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 293.07,
+      "t": 290.0,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 294.62,
+      "t": 294.61,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 301.34,
+      "t": 300.81,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 305.98,
+      "t": 307.53,
       "event": "state changed -> time-lapse off"
     },
     {
-      "t": 311.11,
+      "t": 316.32,
       "event": "idle >= 5s -> time-lapse on"
     },
     {
-      "t": 312.15,
+      "t": 322.52,
       "event": "state changed -> time-lapse off"
-    },
-    {
-      "t": 326.62,
-      "event": "idle >= 5s -> time-lapse on"
     }
   ],
-  "video": "demo\\out\\raw\\dash_011838_a1.webm"
+  "video": "demo\\out\\raw\\dash_024106_a1.webm"
 }

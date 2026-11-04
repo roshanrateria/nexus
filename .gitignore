@@ -10,3 +10,6 @@ node_modules/
 .next/
 
 web/shots/
+
+# Demo recordings and generated capture artifacts
+demo/out/*
