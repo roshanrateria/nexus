@@ -13,6 +13,9 @@ Exits non-zero when anything fails. Needs MODEL_API_KEY in .env
 (and BASETEN_API_KEY for hybrid mode). All other settings are code defaults.
 """
 
+import argparse
+import json
+import re
 import sys
 import traceback
 from pathlib import Path
@@ -20,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path = list(dict.fromkeys(sys.path))
 
+import httpx
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
@@ -31,6 +35,76 @@ from agent import BASETEN_BASE_URL, BASETEN_MODEL, META_BASE_URL, check_model_ke
 from schemas import PlannerDecision, Settings
 
 ROLES = ("planner", "executor", "verifier", "reporter")
+
+# Caps keep base64 screenshots from flooding the console.
+REQUEST_BODY_LIMIT = 4000
+RESPONSE_BODY_LIMIT = 2000
+_BASE64_URL_RE = re.compile(r'"url"\s*:\s*"data:[^"]{64,}"')
+
+
+class HttpDebug:
+    """--debug: an httpx event hook that prints method, URL, redacted request
+    JSON and (on status >= 400 or finish_reason == "length") the response body.
+
+    Redaction first: the string equal to any API key is replaced wherever it
+    would appear; base64 image payloads are collapsed to a length marker.
+    """
+
+    def __init__(self, keys: list[str]):
+        self.keys = [key for key in keys if key]
+
+    def redact(self, text: str) -> str:
+        for key in self.keys:
+            text = text.replace(key, "***REDACTED***")
+        if "data:" in text and "base64" in text:
+            text = _BASE64_URL_RE.sub('"url": "data:image/<base64 image elided>"', text)
+        return text
+
+    def redact_headers(self, headers) -> str:
+        parts = []
+        for name, value in headers.items():
+            if name.lower() == "authorization":
+                value = "***REDACTED***" if value else value
+            parts.append(f"{name}: {value}")
+        return self.redact("; ".join(parts))
+
+    def client(self) -> httpx.Client:
+        def log_request(request: httpx.Request) -> None:
+            try:
+                body = request.content.decode("utf-8", "replace") if request.content else ""
+            except Exception:
+                body = ""
+            print(f"[http] {request.method} {request.url}", flush=True)
+            if body:
+                shown = self.redact(body)
+                if len(shown) > REQUEST_BODY_LIMIT:
+                    shown = shown[:REQUEST_BODY_LIMIT] + f" ...[+{len(shown) - REQUEST_BODY_LIMIT} chars]"
+                print(f"[http] request body: {shown}", flush=True)
+
+        def log_response(response: httpx.Response) -> None:
+            content_type = response.headers.get("content-type", "")
+            # Only JSON bodies are read here; SSE streams (text/event-stream) are
+            # consumed by the SDK afterwards, so they must stay untouched.
+            if "application/json" not in content_type:
+                return
+            try:
+                body_text = response.read().decode("utf-8", "replace")
+            except Exception:
+                return
+            if response.status_code >= 400:
+                shown = self.redact(body_text)
+                if len(shown) > RESPONSE_BODY_LIMIT:
+                    shown = shown[:RESPONSE_BODY_LIMIT] + f" ...[+{len(shown) - RESPONSE_BODY_LIMIT} chars]"
+                print(f"[http] response {response.status_code} ({content_type}): {shown}", flush=True)
+                return
+            try:
+                finish = (json.loads(body_text).get("choices") or [{}])[0].get("finish_reason")
+            except Exception:
+                return
+            if finish == "length":
+                print(f'[http] response 200 finish_reason="length": {self.redact(body_text)[:RESPONSE_BODY_LIMIT]}', flush=True)
+
+        return httpx.Client(event_hooks={"request": [log_request], "response": [log_response]})
 
 PNG_1PX = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
@@ -96,7 +170,10 @@ def structured_check(llm: ChatOpenAI, settings: Settings) -> str:
     return f"status={result.status}, steps={len(result.plan)}"
 
 
-def reasoning_effort_check(model: str, api_key: str) -> str:
+def reasoning_effort_check(model: str, api_key: str, debug: HttpDebug | None = None) -> str:
+    extra: dict = {}
+    if debug is not None:
+        extra["http_client"] = debug.client()
     low = ChatOpenAI(
         model=model,
         base_url=META_BASE_URL,
@@ -105,6 +182,7 @@ def reasoning_effort_check(model: str, api_key: str) -> str:
         reasoning_effort="low",
         max_retries=1,
         stream_usage=True,
+        **extra,
     )
     message = low.invoke("Reply with the single word OK.")
     assert message.text.strip(), "empty response"
@@ -112,10 +190,13 @@ def reasoning_effort_check(model: str, api_key: str) -> str:
     return "accepted"
 
 
-def make_llm(role: str, settings: Settings) -> tuple[ChatOpenAI, str]:
+def make_llm(role: str, settings: Settings, debug: HttpDebug | None = None) -> tuple[ChatOpenAI, str]:
     """The exact per-role ChatOpenAI that agent.build_models would create."""
     endpoint = role_endpoint(settings, role)
     meta = endpoint == "cloud"
+    extra: dict = {}
+    if debug is not None:
+        extra["http_client"] = debug.client()
     return (
         ChatOpenAI(
             model=getattr(settings, f"{role}_model") if meta else BASETEN_MODEL,
@@ -125,12 +206,16 @@ def make_llm(role: str, settings: Settings) -> tuple[ChatOpenAI, str]:
             reasoning_effort=getattr(settings, f"{role}_reasoning_effort") if meta else None,
             max_retries=1,
             stream_usage=True,
+            **extra,
         ),
         endpoint,
     )
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Real-key smoke test for the four agent roles")
+    parser.add_argument("--debug", action="store_true", help="httpx event hook: log method, URL, redacted request JSON, error/length response bodies")
+    args = parser.parse_args()
     console = Console()
     load_dotenv()
     try:
@@ -139,6 +224,7 @@ def main() -> None:
         console.print(f"[red]Environment not configured: {error}")
         console.print("[red]Put MODEL_API_KEY=... (and optionally BASETEN_API_KEY) in .env.")
         sys.exit(1)
+    debug = HttpDebug([settings.model_api_key, settings.baseten_api_key]) if args.debug else None
 
     mode = resolve_mode(settings)
     console.print(
@@ -153,7 +239,7 @@ def main() -> None:
     failed = 0
     seen_low: set[str] = set()
     for role in ROLES:
-        llm, endpoint = make_llm(role, settings)
+        llm, endpoint = make_llm(role, settings, debug)
         meta = endpoint == "cloud"
         model = getattr(settings, f"{role}_model") if meta else BASETEN_MODEL
         label = f"{role} ({endpoint}) {model}"
@@ -166,7 +252,7 @@ def main() -> None:
             ("structured (strict=False)", lambda llm=llm, s=settings: structured_check(llm, s)),
         ]
         if meta and model not in seen_low:
-            checks.append(("reasoning_effort='low'", lambda m=model, k=settings.model_api_key: reasoning_effort_check(m, k)))
+            checks.append(("reasoning_effort='low'", lambda m=model, k=settings.model_api_key, d=debug: reasoning_effort_check(m, k, d)))
             seen_low.add(model)
 
         for name, check_fn in checks:
