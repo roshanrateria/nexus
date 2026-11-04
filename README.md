@@ -2,6 +2,7 @@
 
 > Cloud brain, open-weights hands. An autonomous, stateful multi-agent research browser on LangGraph + Playwright, with a privacy ledger that meters every token, every screenshot, every cent — in one repo, with one secret.
 
+[![3-Minute Demo](https://img.shields.io/badge/3--Minute%20Demo-Watch%20on%20YouTube-FF0000?logo=youtube&logoColor=white)](https://youtu.be/tXm6MvTuUqs)
 ![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)
 ![Orchestration](https://img.shields.io/badge/orchestration-LangGraph%20%2B%20LangChain-77AADD)
 ![Browser](https://img.shields.io/badge/browser-Playwright-2EAD33?logo=playwright&logoColor=white)
@@ -181,7 +182,7 @@ Per task the bench records success, wall seconds, steps, planner calls and the f
 
 ## The three-minute demo
 
-Submitted via the Cerebral Valley platform (primary judging artifact), built with the repo's own recording kit — every dashboard frame is one genuine run, no staging, no invented numbers:
+**Watch the reel:** <https://youtu.be/tXm6MvTuUqs> — submitted via the Cerebral Valley platform (primary judging artifact), built with the repo's own recording kit — every dashboard frame is one genuine run, no staging, no invented numbers:
 
 | artifact | what it is |
 |---|---|
