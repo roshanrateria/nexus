@@ -662,10 +662,20 @@ async def run(args: argparse.Namespace) -> None:
                 except Exception:
                     pass
 
+            async def clear_previous_run() -> None:
+                """FIX1: the final state of the previous run stays on the
+                dashboard until a new goal starts; wipe it now, just before
+                this goal's events are published."""
+                hub.reset()
+                ledger.reset()
+                with contextlib.suppress(Exception):
+                    await browser.navigate("about:blank")
+
             config = {"configurable": {"thread_id": run_id}, "recursion_limit": settings.recursion_limit}
             control.set_busy(True)
             try:
                 if resumed:
+                    await clear_previous_run()
                     snapshot = await graph.aget_state(config)
                     if not snapshot.values:
                         log_line(f"[red]No saved run with id {run_id}[/]")
@@ -679,6 +689,7 @@ async def run(args: argparse.Namespace) -> None:
                         await browser.navigate(snapshot.values["browser_url"])
                     payload = None
                 else:
+                    await clear_previous_run()
                     payload = {"goal": goal, "run_id": run_id, "planner_rounds": 0, "history": [], "status": "running"}
                     event = {"type": "run", "goal": goal, "run_id": run_id}
                     hub.publish(event)
@@ -696,11 +707,11 @@ async def run(args: argparse.Namespace) -> None:
                 log_line(f"[bold red]✗ Run {run_id} failed: {type(error).__name__}: {error}[/]")
                 hub.publish({"type": "error", "message": f"{type(error).__name__}: {error}"})
             finally:
+                # FIX1: the dashboard keeps the final state (plan, history,
+                # evidences, visited, report, ledger, status) until its
+                # replacement starts; the reset moved to the next goal's
+                # start-up, before its run event is published.
                 control.set_busy(False)
-                hub.reset()
-                ledger.reset()
-                with contextlib.suppress(Exception):
-                    await browser.navigate("about:blank")
 
         async def run_queued(goal: str, run_id: str, resumed: bool) -> asyncio.Task:
             task = asyncio.create_task(run_goal(goal, run_id, resumed))

@@ -22,6 +22,7 @@ issues `POST /cancel` on breach).
 | X6 | Demo-goal rehearsal | **goal 1: 2/2 PASS + facts verified**; goal 2: 1/2 (timeout); goal 3: not rehearsed | `runs/3d8d5bd1`, `runs/85768127` (goal 1), `runs/10c4631b`, `runs/af25d0f7` (goal 2) |
 | X7 | Fresh-clone E2E | **script ready, not yet executed** | `scripts/fresh_clone_test.py` (fixed 3 pre-run bugs, compile-green, uncommitted) |
 | X8 | Submission hygiene | **PASS** | commit `c01b075` — secret scan CLEAN, MIT LICENSE, README bullets + quickstart, `docs/samples/` (2 verified reports) |
+| FIX1 | Final state persists until the next run starts | **PASS** (11/11 ui gates + 12 new contract assertions) | commit "FIX1: persist final state until next run", run `6a79a1eb`, `runs/6a79a1eb/ui_check.json` |
 | X9 | This report | complete | `docs/TEST_REPORT.md`, `demo/goal.txt`, `demo/rehearsal.md` |
 
 ## 2. Real-API runs (every run with `MODEL_API_KEY` this session)
@@ -43,9 +44,13 @@ ledger is taken from UI screenshots or bounded estimates.
 | `85768127` | X6 goal-1 repeat 2 | 169 s | $0.2337 | goal_achieved, 11/11 |
 | `10c4631b` | X6 goal-2 repeat 1 | 139 s | $0.1585 | goal_achieved, 11/11 |
 | `af25d0f7` | X6 goal-2 repeat 2 | 480 s (timeout cancel) | $0.5012 | FAIL — per-step retry stall, no report |
+| `f474f5e0` + `b41a307f` | FIX1 verification pre-run (aborted) | — | ≤ $0.2 each (estimate) | harness shells lost mid-run, no check.json |
+| `45ea312c` | FIX1 verification (excluded) | 480 s (budget) | ~$0.10 (estimate) | agent stall mid-run, 0 console errors — same class as `af25d0f7`, pre-existing |
+| `fe55f47f` | FIX1 verification (excluded) | 157 s | ~$0.20 (estimate) | goal finished normally; persistence gates printed nulls — checker bug (empty probe dict), fixed |
+| `6a79a1eb` | FIX1 verification — **the PASS run** | 194 s | ~$0.20 (estimate) | **11/11 gates incl. both persistence probes** (`after_5s=9/1272ch`) |
 
-**Known total ≈ $1.46 recorded + ≈ $0.8–1.2 estimated non-recorded → session
-spend ≈ $2.3–2.7 of the $6.00 cap; worst single run $0.5012 < $1.00.**
+**Known total ≈ $1.46 recorded + ≈ $1.5–2.0 estimated non-recorded → session
+spend ≈ $3.0–3.5 of the $6.00 cap; worst single run $0.5012 < $1.00.**
 (Budget never cancelled a run; `af25d0f7` ended on wall-time.)
 
 A `report_bf7b5f01.md` (Flipkart headphones) exists from the user's own manual
@@ -89,14 +94,32 @@ Wrong facts found: **none**.
    profile*, attempt aborted before starting (harness shell lost).
 6. **X1 (no commit)**: zero fixes required — all four static gates were green on
    first run.
+7. **FIX1 ("persist final state until next run")**: the hub no longer wipes itself the moment a run ends.
+   `runner.py` `run_goal()`'s `finally` now only clears `busy`; the reset
+   (`hub.reset()` + `ledger.reset()` + `browser → about:blank`) moved into a
+   new `clear_previous_run()`, awaited when the NEXT goal is dequeued, before
+   its `run` event is published — so plan, history, evidences, visited, report,
+   ledger, status and outcome all survive `finished`/`error`/cancel, and the
+   dashboard keeps the full result (the header already offered "New run").
+   Checkers: `contract_check.py` +12 assertions (state kept after the terminal
+   event, all cleared by the next run event); `ui_check.py` finish detection
+   switched from the vanish-on-reset `idle` condition to the persistent
+   terminal `/state`, with a 5 s-after-finish persistence gate (report still
+   populated, evidence-card count unchanged). Verified live: run `6a79a1eb`
+   passed 11/11 ui gates (`after_5s=9 evidences / 1272 report chars`); both
+   interrupted `ui_check` attempts (`f474f5e0`, `b41a307f` — harness shell
+   loss) and the agent-stall run (`45ea312c`) were pre-verification variance,
+   not product failures.
 
 ## 5. Known issues & remaining risks
 
-1. **Hub reset wipes `/state` the instant a run finishes** — the recording
-   tooling must capture the terminal state from the `/events` stream. The
-   original X5 checker sampled the post-reset DOM and reported FAIL on a run
-   the product itself had completed (`7651cdd3`) — that failure was a checker
-   artifact, fixed in the rewrite (continuous maxima + busy-flip detection).
+1. **Hub reset wipes `/state` the instant a run finishes** — FIXED by FIX1:
+   the reset now happens at the START of the next goal, so the
+   terminal `/state` persists after `finished`/`error` and the recording
+   tooling may read `/state` directly (the `/events` recorder is kept too).
+   The original X5 checker had sampled the post-reset DOM and reported FAIL on
+   a run the product itself had completed (`7651cdd3`) — that failure was a
+   checker artifact, fixed in the rewrite and then mooted by FIX1.
 2. **Per-step retry stall** (`af25d0f7`): on blog.rust-lang.org the executor
    recovered the first two releases, then repeated identical screenshots for
    ~180 s without finishing the step (shots 68=69, shot 70 = earlier page).

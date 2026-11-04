@@ -2,14 +2,17 @@
 
 Opens http://127.0.0.1:8765/ (starting runner.py serve mode if /health does
 not answer yet), types a short goal into composer-input, starts the run and
-watches it live. The DOM is sampled DURING the run — the hub resets its state
-the instant a run finishes, which unmounts plan steps, evidence and the report
-body — so each assertion records the maximum ever observed:
+watches it live. While the run streams, each assertion records the maximum
+ever observed (frames can tear down mid-refresh); after the finish a second
+sample pins FIX1 — the hub keeps the final state, so the dashboard must still
+show it 5 s later:
 
   * at least one plan-step, evidence-card;
   * browser-frame showing a frame (an img with naturalWidth > 0);
   * a non-empty report-body while the report streamed;
   * a visible ledger + stat-cost;
+  * report-body still populated and evidence-card count unchanged 5 s
+    after the run finished;
   * zero console errors and zero pageerrors.
 
 Screenshots land in runs/<run_id>/ui_{third,twothirds,end}.png so every
@@ -57,6 +60,9 @@ def main() -> None:
     errors: list[str] = []
     result: dict = {"ok": False, "screenshots": [], "run_id": ""}
     best = {"plan_steps": 0, "evidence_cards": 0, "frame_imgs": 0, "report_chars": 0}
+    # post-finish persistence probe (FIX1): pre-seeded keys keep sample_dom's
+    # max() calls from raising KeyError into the blanket except
+    final = {"plan_steps": 0, "evidence_cards": 0, "report_chars": 0}
     marks = {"running": False, "report_seen": False, "finished": False}
     started = time.monotonic()
     shots_taken: set[str] = set()
@@ -88,24 +94,27 @@ def main() -> None:
                 sys.exit("[ui_check] composer-start never became enabled (hydration never saw the goal)")
             print("[ui_check] run started via the composer")
 
-            def sample_dom() -> None:
-                """Record the maxima ever seen — the hub wipes these on reset."""
+            def sample_dom(target: dict | None = None) -> None:
+                """Record the counts ever seen; the post-finish probe passes
+                its own dict to pin what the dashboard still shows (FIX1)."""
+                dest = target if target is not None else best
                 try:
-                    best["plan_steps"] = max(best["plan_steps"], page.get_by_test_id("plan-step").count())
-                    best["evidence_cards"] = max(best["evidence_cards"], page.get_by_test_id("evidence-card").count())
+                    dest["plan_steps"] = max(dest["plan_steps"], page.get_by_test_id("plan-step").count())
+                    dest["evidence_cards"] = max(dest["evidence_cards"], page.get_by_test_id("evidence-card").count())
                     container = page.get_by_test_id("browser-frame")
                     imgs = container.locator("img")
                     for i in range(imgs.count()):
                         try:
                             if imgs.nth(i).evaluate("img => img.naturalWidth") > 0:
-                                best["frame_imgs"] += 1
+                                dest["frame_imgs"] = dest.get("frame_imgs", 0) + 1
                                 break
                         except Exception:
                             pass
                     body = page.get_by_test_id("report-body")
                     if body.count():
-                        best["report_chars"] = max(best["report_chars"], len(body.inner_text()))
-                        marks["report_seen"] = True
+                        dest["report_chars"] = max(dest["report_chars"], len(body.inner_text()))
+                        if dest is best:
+                            marks["report_seen"] = True
                 except Exception:
                     pass  # a torn-down DOM during refresh is fine; keep polling
 
@@ -157,10 +166,11 @@ def main() -> None:
                 busy = None
                 if isinstance(health, dict):
                     busy = bool(health.get("busy"))
-                idle = isinstance(state, dict) and state.get("status") in ("starting", "done") and not state.get("goal")
-                if busy is False and idle and marks["report_seen"]:
-                    # finished and the hub collapsed; one last DOM sweep before
-                    # believing anything
+                terminal = isinstance(state, dict) and state.get("status") in ("done", "error")
+                if busy is False and terminal and marks["running"]:
+                    # FIX1 keeps the hub state after the finish, so the
+                    # terminal /state itself says the run is over; one more
+                    # DOM sweep, then persistence is pinned below.
                     sample_dom()
                     marks["finished"] = True
                     break
@@ -176,6 +186,10 @@ def main() -> None:
             result["screenshots"].append(str(end_path.relative_to(ROOT)))
             ledger_visible = page.get_by_test_id("ledger").is_visible()
             stat_cost_visible = page.get_by_test_id("stat-cost").is_visible()
+            # FIX1 gate: 5 s after the finish the dashboard must still show
+            # the final state (report text + evidence cards stay rendered).
+            time.sleep(5)
+            sample_dom(final)
             browser.close()
     finally:
         if process is not None:
@@ -192,16 +206,20 @@ def main() -> None:
 
     checks = {
         "run started (running seen)": marks["running"],
-        "run finished (idle + report seen)": marks["finished"],
+        "run finished (terminal state seen)": marks["finished"],
         ">= 1 plan-step": best["plan_steps"] >= 1,
         ">= 1 evidence-card": best["evidence_cards"] >= 1,
         "browser-frame image loaded": best["frame_imgs"] >= 1,
         "report-body non-empty": best["report_chars"] > 0,
+        "final state persists: report-body still populated 5s after finish": final.get("report_chars", 0) > 0,
+        "final state persists: evidence-card count unchanged 5s after finish":
+            final.get("evidence_cards", 0) == best["evidence_cards"] and best["evidence_cards"] >= 1,
         "ledger visible": ledger_visible,
         "stat-cost visible": stat_cost_visible,
         "no console errors / pageerrors": not errors,
     }
     result.update({k: v for k, v in best.items()})
+    result["final_sample"] = dict(final)
     result["marks"] = dict(marks)
     result["errors"] = errors[:10]
     ok = all(checks.values())
@@ -210,7 +228,8 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "ui_check.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\n[ui_check] {'PASS' if ok else 'FAIL'}  (plan={best['plan_steps']}, evidence={best['evidence_cards']}, "
-          f"frame_img={best['frame_imgs']}, report_chars={best['report_chars']}, wall={time.monotonic() - started:.0f}s)")
+          f"frame_img={best['frame_imgs']}, report_chars={best['report_chars']}, "
+          f"after_5s={final.get('evidence_cards')}/{final.get('report_chars', 0)}ch, wall={time.monotonic() - started:.0f}s)")
     for name, passed in checks.items():
         print(f"    {'PASS' if passed else 'FAIL'}  {name}")
     for error in errors[:10]:

@@ -137,6 +137,29 @@ def check_state_contract() -> None:
             missing = set(evidence) - ts_evidence
             check("Evidence keys exist in TS", not missing, f"missing={sorted(missing)}")
 
+    # FIX1: the final state survives the terminal event (the reset moved to
+    # the START of the next goal, before its run event).
+    final = hub.state
+    check("report kept after finished/error", bool(final.get("report")), f"{final.get('report')!r}")
+    check("report_path kept after finished/error", final.get("report_path") == "reports/report_c0ffee12.md", repr(final.get("report_path")))
+    check("evidences kept after finished/error", len(final.get("evidences") or []) == 2, f"{len(final.get('evidences') or [])}")
+    check("history kept after finished/error", len(final.get("history") or []) == 1, f"{len(final.get('history') or [])}")
+    check("visited kept after finished/error", len(final.get("visited") or []) == 1, f"{len(final.get('visited') or [])}")
+    check("ledger kept after finished/error", (final.get("ledger") or {}).get("cost_usd") == 1.3e-05, repr((final.get('ledger') or {}).get('cost_usd')))
+    check("terminal outcome kept", final.get("status") in ("done", "error"), repr(final.get("status")))
+
+    # The next goal's start-up: same sequence run_goal performs before the
+    # run event (reset -> new run event).
+    hub.reset()
+    hub.publish({"type": "run", "goal": "Second contract goal", "run_id": "decafbad"})
+    cleared = hub.state
+    check("next run clears the report", cleared.get("report") == "" and cleared.get("report_path") == "")
+    check("next run clears evidences", cleared.get("evidences") == [])
+    check("next run clears history", cleared.get("history") == [])
+    check("next run clears visited", cleared.get("visited") == [])
+    check("next run clears ledger", cleared.get("ledger") == {})
+    check("next run carries the new goal", cleared.get("goal") == "Second contract goal" and cleared.get("run_id") == "decafbad")
+
 
 def check_http_contract() -> None:
     hub = Hub(300)
