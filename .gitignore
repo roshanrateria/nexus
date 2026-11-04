@@ -9,3 +9,5 @@ web/out/
 .venv/
 node_modules/
 .next/
+
+web/shots/
