@@ -57,7 +57,14 @@ export interface CurrentState {
   shot?: string;
 }
 
-/** One entry per visited URL for the current run (deduped, newest first). */
+export interface LogEntry {
+  t: string;
+  kind: LogKind;
+  text: string;
+}
+
+/** One observed page, deduped by URL, newest visit first. Shaped by the
+ * backend hub (`visited`), absent in older snapshots. */
 export interface VisitedSite {
   url: string;
   host: string;
@@ -67,18 +74,12 @@ export interface VisitedSite {
   last_t: string;
 }
 
-export interface LogEntry {
-  t: string;
-  kind: LogKind;
-  text: string;
-}
-
 export interface NexusState {
   goal: string;
   run_id: string;
   status: string;
   outcome: string;
-  mode?: "hybrid" | "cloud";
+  mode?: string;
   thought: string;
   plan: Step[];
   history: HistoryRecord[];

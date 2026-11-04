@@ -114,20 +114,6 @@ class NexusStore {
     this.pending = null;
     if (!next) return;
 
-    // Escalation toast: planner round count went up.
-    const prev = this.state.data?.ledger?.planner_calls ?? 0;
-    const now = next.ledger?.planner_calls ?? 0;
-    if (now > prev) {
-      const id = `escalation-${now}`;
-      const toast: Toast = {
-        id,
-        kind: "escalation",
-        title: "Planner consulted",
-        detail: `Round ${now} · it owns the browser again until the plan is stable`,
-      };
-      this.pushToastInner(toast);
-    }
-
     this.patch({ data: next });
   }
 
@@ -160,11 +146,19 @@ class NexusStore {
       this.reconnectTimer = null;
     }
     this.patch({ phase: "demo", data: null });
+    let mode: "cloud" | "hybrid" = "cloud";
+    try {
+      const requested = new URLSearchParams(window.location.search).get("mode");
+      if (requested === "hybrid") mode = requested;
+    } catch {
+      /* URL parsing ought to work; fall back to cloud. */
+    }
     void startDemoScript(
       (next) => {
         if (this.demoOn && gen === this.demoGen) this.commit(next);
       },
-      () => !this.demoOn || gen !== this.demoGen
+      () => !this.demoOn || gen !== this.demoGen,
+      mode
     );
   }
 }
@@ -174,8 +168,9 @@ export const store = new NexusStore();
 /** The demo script lives in its own module to keep the store lean. */
 async function startDemoScript(
   commit: (next: NexusState) => void,
-  cancelled: () => boolean
+  cancelled: () => boolean,
+  mode: "cloud" | "hybrid"
 ): Promise<void> {
   const { runDemo } = await import("./demo");
-  runDemo(commit, cancelled);
+  runDemo(commit, cancelled, mode);
 }

@@ -1,17 +1,22 @@
-/** Scripted ~40 s NexState replay that flows through the same throttled
- * commit path as live SSE. Deterministic — every playback is identical. */
+/** Scripted ~40 s Nexus replay that flows through the same throttled
+ * commit path as live SSE. Deterministic — every playback is identical.
+ *
+ * Modes: `cloud` (all roles on Meta Model API, screenshots billed to the
+ * cloud bucket) and `hybrid` (executor + verifier on open weights, planner +
+ * reporter on Meta). Selected from `?demo=1&mode=hybrid`. */
 
 import type {
-  Bucket,
-  CurrentState,
   HistoryRecord,
   Ledger,
   LogEntry,
   LogKind,
   NexusState,
   Step,
+  VisitedSite,
 } from "./types";
 import { DEMO_SHOTS } from "./demoShots";
+
+export type DemoMode = "cloud" | "hybrid";
 
 const RUN_ID = "5eed1a7";
 const GOAL =
@@ -49,22 +54,18 @@ const URL_REVIEWS_B = "https://www.flipkart.com/zebronics-zeb-thunder/product-re
 const URL_ZEB = "https://www.flipkart.com/zebronics-zeb-thunder/p/itmzebth02";
 const URL_TREAD = "https://www.flipkart.com/treadmill-headphone/p/itmtread03";
 
-interface Deltas {
-  cloudCalls?: number;
-  cloudIn?: number;
-  cloudOut?: number;
-  cloudBytes?: number;
-  cloudImages?: number;
-  openCalls?: number;
-  openIn?: number;
-  openOut?: number;
-  openBytes?: number;
-  openImages?: number;
+interface Billing {
+  calls: number;
+  tokensIn: number;
+  tokensOut: number;
+  bytes: number;
+  images: number;
 }
 
 export function runDemo(
   commit: (next: NexusState) => void,
-  cancelled: () => boolean
+  cancelled: () => boolean,
+  mode: DemoMode = "cloud"
 ): void {
   const timers: number[] = [];
   const at = (seconds: number, fn: () => void): void => {
@@ -75,11 +76,15 @@ export function runDemo(
     );
   };
 
+  /** Executor/verifier ride the open-weights endpoint only in hybrid. */
+  const openWeights = mode === "hybrid";
+
   let d: NexusState = {
     goal: "",
     run_id: "",
     status: "starting",
     outcome: "",
+    mode,
     thought: "",
     plan: [],
     history: [],
@@ -93,25 +98,45 @@ export function runDemo(
   let clock = 9 * 3600 + 41 * 60 + 2;
   const history: HistoryRecord[] = [];
 
-  const cloud: Bucket = { calls: 0, prompt_tokens: 0, completion_tokens: 0, bytes_out: 0, images_out: 0 };
-  const open: Bucket = { calls: 0, prompt_tokens: 0, completion_tokens: 0, bytes_out: 0, images_out: 0 };
+  const cloud: Billing = { calls: 0, tokensIn: 0, tokensOut: 0, bytes: 0, images: 0 };
+  const open: Billing = { calls: 0, tokensIn: 0, tokensOut: 0, bytes: 0, images: 0 };
   let plannerCalls = 0;
+  let costUsd = 0;
+
+  const remote = (billing: Billing, delta: Partial<Billing>): void => {
+    billing.calls += delta.calls ?? 0;
+    billing.tokensIn += delta.tokensIn ?? 0;
+    billing.tokensOut += delta.tokensOut ?? 0;
+    billing.bytes += delta.bytes ?? 0;
+    billing.images += delta.images ?? 0;
+  };
+  /** Executor-side call: the endpoint depends on the demo mode. */
+  const remoteJob = (delta: Partial<Billing>): void => remote(openWeights ? open : cloud, delta);
+
+  const bucket = (b: Billing) => ({
+    calls: b.calls,
+    prompt_tokens: b.tokensIn,
+    completion_tokens: b.tokensOut,
+    bytes_out: b.bytes,
+    images_out: b.images,
+  });
 
   const ledger = (): Ledger => {
-    const openTokens = open.prompt_tokens + open.completion_tokens;
-    const cloudTokens = cloud.prompt_tokens + cloud.completion_tokens;
+    const openTokens = open.tokensIn + open.tokensOut;
+    const cloudTokens = cloud.tokensIn + cloud.tokensOut;
     const total = openTokens + cloudTokens;
     return {
-      cloud: { ...cloud },
-      open: { ...open },
+      cloud: bucket(cloud),
+      open: bucket(open),
       by_role: {
-        planner: { ...cloud },
-        executor: { ...open },
-        verifier: { ...open },
-        reporter: { ...cloud },
+        planner: bucket(cloud),
+        executor: bucket(openWeights ? open : cloud),
+        verifier: bucket(openWeights ? open : cloud),
+        reporter: bucket(cloud),
       },
       planner_calls: plannerCalls,
       open_token_share: total > 0 ? round(openTokens / total, 4) : 0,
+      cost_usd: round(costUsd, 4),
     };
   };
 
@@ -125,48 +150,79 @@ export function runDemo(
     if (cancelled()) return;
     commit({
       ...d,
+      mode,
       plan: d.plan.map((s) => ({ ...s })),
       history: [...history],
       evidences: d.evidences.map((e) => ({ ...e })),
       current: { ...d.current },
       log: [...d.log],
       ledger: ledger(),
+      visited: d.visited?.map((v) => ({ ...v })),
     });
   };
 
-  const bump = (delta: Deltas): void => {
-    if (delta.cloudCalls) cloud.calls += delta.cloudCalls;
-    if (delta.cloudIn) cloud.prompt_tokens += delta.cloudIn;
-    if (delta.cloudOut) cloud.completion_tokens += delta.cloudOut;
-    if (delta.cloudBytes) cloud.bytes_out += delta.cloudBytes;
-    if (delta.cloudImages) cloud.images_out += delta.cloudImages;
-    if (delta.openCalls) open.calls += delta.openCalls;
-    if (delta.openIn) open.prompt_tokens += delta.openIn;
-    if (delta.openOut) open.completion_tokens += delta.openOut;
-    if (delta.openBytes) open.bytes_out += delta.openBytes;
-    if (delta.openImages) open.images_out += delta.openImages;
+  /** Sites visited, mirroring the backend hub: deduped by URL, newest visit
+   * first, revisit count bumped. */
+  const visit = (url: string, title: string): void => {
+    if (!url || url === "about:blank") return;
+    const now = fmtClock(clock);
+    const previous = d.visited ?? [];
+    const found = previous.findIndex((v) => v.url === url);
+    let next: VisitedSite[];
+    if (found >= 0) {
+      const entry = { ...previous[found] };
+      entry.visits += 1;
+      entry.title = title || entry.title;
+      entry.last_t = now;
+      next = [...previous];
+      next.splice(found, 1);
+      next.unshift(entry);
+    } else {
+      next = [
+        { url, host: hostOf(url), title, visits: 1, first_t: now, last_t: now },
+        ...previous,
+      ];
+    }
+    d = { ...d, visited: next };
   };
 
   const shotOf = (n: number): string => DEMO_SHOTS[n - 1];
-  const frame = (n: number, url: string, title: string): Partial<CurrentState> => {
-    bump({ openCalls: 1, openIn: 2540, openOut: 230, openBytes: 118_400, openImages: 1 });
-    return { shot: shotOf(n), url, title, iteration: (d.current.iteration ?? 0) + 1 };
+  /** A brand-new scene: bumped frame counter, new thumbnail slot. */
+  const frame = (n: number, url: string, title: string): void => {
+    remoteJob({ calls: 1, tokensIn: 2540, tokensOut: 230, bytes: 118_400, images: 1 });
+    d = {
+      ...d,
+      current: {
+        ...d.current,
+        shot: shotOf(n),
+        url,
+        title,
+        iteration: (d.current.iteration ?? 0) + 1,
+      },
+    };
+    visit(url, title);
+  };
+  /** Re-observation of the current page (get_page_text etc.): no new frame
+   * or thumbnail — the URL/title just refresh, visits bump. */
+  const observe = (url: string, title: string): void => {
+    d = { ...d, current: { ...d.current, url, title } };
+    visit(url, title);
   };
 
   const action = (name: string, args: string): void => {
     pushLog("action", `${name}(${args})`, 0.9);
-    bump({ openCalls: 1, openIn: 2620, openOut: 210 });
+    remoteJob({ calls: 1, tokensIn: 2620, tokensOut: 210 });
     d = { ...d, current: { ...d.current, last_action: `${name}(${args})` } };
   };
 
   const result = (name: string, text: string): void => {
     pushLog("ok", `${name}: ${text}`, 1.1);
-    bump({ openCalls: 1, openIn: 2980, openOut: 60, openBytes: 9400, openImages: 1 });
+    remoteJob({ calls: 1, tokensIn: 2980, tokensOut: 60, bytes: 9400, images: 1 });
   };
 
   const executorReport = (report: string): void => {
     pushLog("action", "Executor reported back", 1.2);
-    bump({ openCalls: 1, openIn: 3400, openOut: 340 });
+    remoteJob({ calls: 1, tokensIn: 3400, tokensOut: 340 });
     d = { ...d, current: { ...d.current, report } };
   };
 
@@ -197,15 +253,16 @@ export function runDemo(
     pushLog(complete ? "ok" : "failed", `Step ${complete ? "verified" : "NOT complete"}: ${built.assessment}`, 1.5);
     if (built.evidences.length) {
       d = { ...d, evidences: [...d.evidences, ...built.evidences.map((e) => ({ ...e }))] };
-      bump({ openCalls: 1, openIn: 3150, openOut: 260 });
+      remoteJob({ calls: 1, tokensIn: 3150, tokensOut: 260 });
     } else {
-      bump({ openCalls: 1, openIn: 3150, openOut: 220 });
+      remoteJob({ calls: 1, tokensIn: 3150, tokensOut: 220 });
     }
   };
 
   const plan = (round: number, steps: Step[], thought: string, kind: LogKind = "plan"): void => {
     plannerCalls = Math.max(plannerCalls, round);
-    bump({ cloudCalls: 1, cloudIn: 1520 + round * 380, cloudOut: 280, cloudBytes: 6200 });
+    costUsd += 0.018 + round * 0.012;
+    remote(cloud, { calls: 1, tokensIn: 1520 + round * 380, tokensOut: 280, bytes: 6200 });
     d = {
       ...d,
       status: "running",
@@ -222,7 +279,7 @@ export function runDemo(
   // ---- 00.4 run + first plan ---------------------------------------------
   at(0.4, () => {
     d = { ...d, goal: GOAL, run_id: RUN_ID, status: "running" };
-    pushLog("plan", `Run ${RUN_ID} started`, 0);
+    pushLog("plan", `Run ${RUN_ID} started (${mode === "hybrid" ? "hybrid" : "cloud-only"} mode)`, 0);
     snap();
   });
   at(1.1, () => {
@@ -241,7 +298,7 @@ export function runDemo(
   });
   at(2.8, () => {
     result("type_text", "Typed 19 characters into element 10 and pressed Enter.");
-    d = { ...d, current: { ...d.current, ...frame(1, URL_SEARCH, "Headphones - Flipkart.com") } };
+    frame(1, URL_SEARCH, "Headphones - Flipkart.com");
     snap();
   });
   at(3.6, () => {
@@ -250,7 +307,7 @@ export function runDemo(
   });
   at(4.1, () => {
     result("get_page_text", "Characters 0-1,506 of 4,211 (links appended).");
-    d = { ...d, current: { ...d.current, ...frame(1, URL_SEARCH, "Headphones - Flipkart.com") } };
+    observe(URL_SEARCH, "Headphones - Flipkart.com");
     snap();
   });
   at(4.8, () => {
@@ -299,8 +356,9 @@ export function runDemo(
   });
   at(7.1, () => {
     pushLog("error", "click: Clicked element 43. Results order unchanged; active sort stayed Relevance.", 1.1);
-    bump({ openCalls: 1, openIn: 2760, openOut: 190 });
-    d = { ...d, current: { ...d.current, ...frame(2, URL_SEARCH, "Headphones - Flipkart.com") } };
+    remoteJob({ calls: 1, tokensIn: 2760, tokensOut: 190 });
+    // New observation of the unchanged page — fresh frame number, same look.
+    frame(1, URL_SEARCH, "Headphones - Flipkart.com");
     snap();
   });
   at(7.7, () => {
@@ -333,7 +391,7 @@ export function runDemo(
   });
   at(9.6, () => {
     result("navigate", `Navigated to ${URL_SORTED} (HTTP 200).`);
-    d = { ...d, current: { ...d.current, ...frame(2, URL_SORTED, "Headphones - Flipkart.com | Popularity") } };
+    frame(2, URL_SORTED, "Headphones - Flipkart.com | Popularity");
     snap();
   });
   at(10.4, () => {
@@ -342,7 +400,7 @@ export function runDemo(
   });
   at(10.9, () => {
     result("get_page_text", "Characters 0-2,204 of 5,937 (3 product URLs captured).");
-    d = { ...d, current: { ...d.current, ...frame(2, URL_SORTED, "Headphones - Flipkart.com | Popularity") } };
+    observe(URL_SORTED, "Headphones - Flipkart.com | Popularity");
     snap();
   });
   at(11.6, () => {
@@ -403,7 +461,7 @@ export function runDemo(
   });
   at(14.6, () => {
     result("navigate", `Navigated to ${URL_REVIEWS_A} (HTTP 200).`);
-    d = { ...d, current: { ...d.current, ...frame(3, URL_REVIEWS_A, "Leaf Bass Bluetooth Headset Reviews") } };
+    frame(3, URL_REVIEWS_A, "Leaf Bass Bluetooth Headset Reviews");
     snap();
   });
   at(15.4, () => {
@@ -412,7 +470,7 @@ export function runDemo(
   });
   at(15.9, () => {
     result("get_page_text", "Characters 0-1,977 of 6,486.");
-    d = { ...d, current: { ...d.current, ...frame(3, URL_REVIEWS_A, "Leaf Bass Bluetooth Headset Reviews") } };
+    observe(URL_REVIEWS_A, "Leaf Bass Bluetooth Headset Reviews");
     snap();
   });
   at(16.6, () => {
@@ -471,7 +529,7 @@ export function runDemo(
   });
   at(18.5, () => {
     result("navigate", `Navigated to ${URL_REVIEWS_B} (HTTP 200).`);
-    d = { ...d, current: { ...d.current, ...frame(4, URL_REVIEWS_B, "Zeb-Thunder Wireless Headphones Reviews") } };
+    frame(4, URL_REVIEWS_B, "Zeb-Thunder Wireless Headphones Reviews");
     snap();
   });
   at(19.3, () => {
@@ -480,7 +538,7 @@ export function runDemo(
   });
   at(19.8, () => {
     result("get_page_text", "Characters 0-1,804 of 9,245.");
-    d = { ...d, current: { ...d.current, ...frame(4, URL_REVIEWS_B, "Zeb-Thunder Wireless Headphones Reviews") } };
+    observe(URL_REVIEWS_B, "Zeb-Thunder Wireless Headphones Reviews");
     snap();
   });
   at(20.5, () => {
@@ -532,7 +590,7 @@ export function runDemo(
   });
   at(22.4, () => {
     result("navigate", `Navigated to product page (HTTP 200).`);
-    d = { ...d, current: { ...d.current, ...frame(5, URL_ZEB, "ZEBRONICS Zeb-Thunder") } };
+    frame(5, URL_ZEB, "ZEBRONICS Zeb-Thunder");
     snap();
   });
   at(23.1, () => {
@@ -541,7 +599,7 @@ export function runDemo(
   });
   at(23.5, () => {
     result("get_page_text", "Battery for Talktime: 60 Hrs line captured.");
-    d = { ...d, current: { ...d.current, ...frame(5, URL_ZEB, "ZEBRONICS Zeb-Thunder") } };
+    observe(URL_ZEB, "ZEBRONICS Zeb-Thunder");
     snap();
   });
   at(24.2, () => {
@@ -550,7 +608,7 @@ export function runDemo(
   });
   at(24.7, () => {
     result("navigate", "Navigated to product page (HTTP 200).");
-    d = { ...d, current: { ...d.current, ...frame(6, URL_TREAD, "Treadmill SPORTS RUNNING HEADPHPONE") } };
+    frame(6, URL_TREAD, "Treadmill SPORTS RUNNING HEADPHPONE");
     snap();
   });
   at(25.4, () => {
@@ -559,7 +617,7 @@ export function runDemo(
   });
   at(25.8, () => {
     result("get_page_text", "Battery backup: 8 Hrs line captured; ₹361 confirmed.");
-    d = { ...d, current: { ...d.current, ...frame(6, URL_TREAD, "Treadmill SPORTS RUNNING HEADPHPONE") } };
+    observe(URL_TREAD, "Treadmill SPORTS RUNNING HEADPHPONE");
     snap();
   });
   at(26.5, () => {
@@ -606,7 +664,8 @@ export function runDemo(
   // ---- Round 3: goal achieved, report streams ------------------------------
   at(28.2, () => {
     plannerCalls = 3;
-    bump({ cloudCalls: 1, cloudIn: 2860, cloudOut: 240, cloudBytes: 7900 });
+    costUsd += 0.05;
+    remote(cloud, { calls: 1, tokensIn: 2860, tokensOut: 240, bytes: 7900 });
     d = {
       ...d,
       status: "goal_achieved",
@@ -627,10 +686,12 @@ export function runDemo(
 
   const chunks = splitStream(REPORT, 12);
   let streamed = "";
+  const perChunkCost = 0.1 / chunks.length;
 
   at(29.3, () => {
-    // Reporter (cloud) opens its one call; tokens stream in per chunk below.
-    bump({ cloudCalls: 1, cloudIn: 2620, cloudOut: 0, cloudBytes: 8100 });
+    // Reporter (cloud) opens its one call; tokens + cost stream per chunk.
+    costUsd += 0.08;
+    remote(cloud, { calls: 1, tokensIn: 2620, tokensOut: 0, bytes: 8100 });
     d = { ...d, status: "reporting", report_path: `reports/report_${RUN_ID}.md` };
     pushLog("plan", "Writing the final report", 0.4);
     snap();
@@ -639,7 +700,8 @@ export function runDemo(
   chunks.forEach((chunk, i) => {
     at(29.9 + i * 0.75, () => {
       streamed += chunk;
-      bump({ cloudOut: chunk.length / 3.6, cloudBytes: chunk.length });
+      costUsd += perChunkCost;
+      remote(cloud, { tokensOut: Math.round(chunk.length / 3.6), bytes: chunk.length });
       d = { ...d, status: "reporting", report: streamed };
       snap();
     });
@@ -648,16 +710,25 @@ export function runDemo(
   const endAt = 29.9 + chunks.length * 0.75 + 0.5;
   at(endAt, () => {
     pushLog("ok", `Report saved to reports/report_${RUN_ID}.md`, 1);
-    d = { ...d, status: "goal_achieved", outcome: "goal_achieved" };
+    d = { ...d, status: "done", outcome: "goal_achieved" };
     snap();
   });
   at(endAt + 0.9, () => {
     pushLog("ok", `Finished · goal_achieved in ${Math.round(endAt)}s`, 0.8);
+    d = { ...d, status: "done", outcome: "goal_achieved" };
     snap();
   });
 
   // Safety: timers stay pending until they fire; cancelled() guards every
   // callback, so a torn-down store simply drops the remaining frames.
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url.slice(0, 32);
+  }
 }
 
 function fmtClock(totalSeconds: number): string {

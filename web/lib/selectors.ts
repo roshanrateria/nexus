@@ -1,13 +1,16 @@
 import type {
   Evidence,
   HistoryRecord,
+  Ledger,
   LogEntry,
   NexusState,
   Phase,
   Step,
+  VisitedSite,
 } from "./types";
 import type { StoreState } from "./store";
 import { evidencesEqual, logsEqual, recordsEqual, shallowEqual, stepsEqual, stringsEqual } from "./equal";
+import { hostOf } from "./urls";
 
 export function selectPhase(s: StoreState): Phase {
   return s.phase;
@@ -28,9 +31,47 @@ export function selectHeader(s: StoreState) {
   };
 }
 
+export interface Stats {
+  historyLen: number;
+  planLen: number;
+  sites: number;
+  evidenceCount: number;
+  escalations: number;
+  costUsd: number | null;
+}
+
+/** Header/stat-strip metrics. Sites falls back to unique hosts from history
+ * URLs when the backend does not track `visited`. */
+export function selectStats(s: StoreState): Stats {
+  const d = s.data;
+  if (!d) return { historyLen: 0, planLen: 0, sites: 0, evidenceCount: 0, escalations: 0, costUsd: null };
+  const visited = d.visited;
+  const cost = d.ledger?.cost_usd;
+  return {
+    historyLen: d.history.length,
+    planLen: d.plan.length,
+    sites:
+      visited?.length ??
+      uniqueHosts([...d.history.map((r) => r.url), d.current?.url]).length,
+    evidenceCount: d.evidences.length,
+    escalations: d.ledger?.planner_calls ?? 0,
+    costUsd: cost === null || cost === undefined || Number.isNaN(cost) ? null : cost,
+  };
+}
+
+function uniqueHosts(urls: (string | undefined)[]): string[] {
+  const set = new Set<string>();
+  for (const url of urls) {
+    const host = hostOf(url);
+    if (host) set.add(host);
+  }
+  return [...set];
+}
+
 export function selectPrivacy(s: StoreState) {
   const d = s.data;
   return {
+    mode: d?.mode,
     imagesOut: d?.ledger?.cloud.images_out ?? 0,
     share: d?.ledger?.open_token_share ?? 0,
     plannerCalls: d?.ledger?.planner_calls ?? 0,
@@ -69,8 +110,17 @@ export function selectLog(s: StoreState): LogEntry[] {
   return s.data?.log ?? [];
 }
 
+/** Last `n` log lines, oldest first — the ticker slices off the tail. */
+export function selectTicker(s: StoreState): LogEntry[] {
+  return s.data?.log.slice(-3) ?? [];
+}
+
 export function selectEvidences(s: StoreState): Evidence[] {
   return s.data?.evidences ?? [];
+}
+
+export function selectVisited(s: StoreState): VisitedSite[] {
+  return s.data?.visited ?? [];
 }
 
 export function selectReport(s: StoreState) {
@@ -80,6 +130,18 @@ export function selectReport(s: StoreState) {
     reportPath: d?.report_path ?? "",
     status: d?.status ?? "",
   };
+}
+
+export function selectGoalString(s: StoreState): string {
+  return s.data?.goal ?? "";
+}
+
+export function selectStatusString(s: StoreState): string {
+  return s.data?.status ?? "";
+}
+
+export function selectRunId(s: StoreState): string {
+  return s.data?.run_id ?? "";
 }
 
 export function selectToastState(s: StoreState) {
@@ -96,6 +158,14 @@ function objectKeyEqual<T>(a: T, b: T, keys: (keyof T)[]): boolean {
 export const headerEqual = (a: ReturnType<typeof selectHeader>, b: ReturnType<typeof selectHeader>) =>
   objectKeyEqual(a, b, ["phase", "goal", "runId", "status", "outcome"]);
 
+export const statsEqual = (a: Stats, b: Stats): boolean =>
+  a.historyLen === b.historyLen &&
+  a.planLen === b.planLen &&
+  a.sites === b.sites &&
+  a.evidenceCount === b.evidenceCount &&
+  a.escalations === b.escalations &&
+  a.costUsd === b.costUsd;
+
 export const privacyEqual = shallowEqual;
 
 export const timelineEqual = (
@@ -109,13 +179,27 @@ export const eyeEqual = (
 ) => objectKeyEqual(a, b, ["runId", "status", "shot", "url", "title", "iteration", "lastAction"]);
 
 export const logEqual = logsEqual;
+export const tickerEqual = logsEqual;
 
 export const evidenceListEqual = evidencesEqual;
+
+/** Visited rows only change by push/bump; id (url) + visits is enough. */
+export const visitedEqual = (a: VisitedSite[] | undefined, b: VisitedSite[] | undefined): boolean => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].url !== b[i].url || a[i].visits !== b[i].visits || a[i].title !== b[i].title) return false;
+  }
+  return true;
+};
 
 export const reportEqual = (
   a: ReturnType<typeof selectReport>,
   b: ReturnType<typeof selectReport>
-) => stringsEqual(a.report, b.report) && stringsEqual(a.reportPath, b.reportPath);
+) =>
+  stringsEqual(a.report, b.report) &&
+  stringsEqual(a.reportPath, b.reportPath) &&
+  stringsEqual(a.status, b.status);
 
 export interface TimelineItem {
   key: string;
@@ -137,14 +221,25 @@ export function buildTimeline(history: HistoryRecord[], plan: Step[]): TimelineI
     verdict: r.complete ? undefined : r.verdict,
     evidences: r.evidences.length,
   }));
-  plan.forEach((p, i) =>
+  // Replans reuse instructions; a plan step already answered by history must
+  // not render twice. The active pointer is the first uncovered step — the
+  // only rows that can be active are plan-derived, in plan order.
+  const doneInstructions = new Set(history.map((r) => r.instruction));
+  let activeAssigned = false;
+  plan.forEach((p, i) => {
+    if (doneInstructions.has(p.instruction)) return;
     items.push({
       key: `p-${i}`,
-      state: i === 0 ? "active" : "queued",
+      state: activeAssigned ? "queued" : "active",
       instruction: p.instruction,
       expected: p.expected_outcome,
       evidences: 0,
-    })
-  );
+    });
+    activeAssigned = true;
+  });
   return items;
+}
+
+export interface LedgerLike {
+  ledger?: Ledger;
 }
