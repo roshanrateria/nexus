@@ -1,0 +1,8 @@
+{
+  "bullets": [
+    "Honest browser hygiene: robots.txt checks, no stealth scripts, untrusted page content never instructs.",
+    "Deterministic evidence check: every claimed quote is re-matched verbatim against the raw page text.",
+    "Privacy ledger: planner and reporter are screenshot-blocked by construction — every token is metered per endpoint.",
+    "One secret to run it: MODEL_API_KEY. Add BASETEN_API_KEY and the hands move to open weights (hybrid)."
+  ]
+}
