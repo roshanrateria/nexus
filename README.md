@@ -1,4 +1,14 @@
-# Lumen — cloud brain, open-weights hands.
+# Nexus — an agentic browser that shows its receipts
+
+> Cloud brain, open-weights hands. An autonomous, stateful multi-agent research browser on LangGraph + Playwright, with a privacy ledger that meters every token, every screenshot, every cent — in one repo, with one secret.
+
+![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)
+![Orchestration](https://img.shields.io/badge/orchestration-LangGraph%20%2B%20LangChain-77AADD)
+![Browser](https://img.shields.io/badge/browser-Playwright-2EAD33?logo=playwright&logoColor=white)
+![Meta Model API](https://img.shields.io/badge/Meta%20Model%20API-Muse%20Spark%201.3-0668E1)
+![Hybrid mode](https://img.shields.io/badge/hybrid-Muse%20Spark%20Open%201026%20on%20Baseten-F97316)
+[![License](https://img.shields.io/github/license/roshanrateria/nexus)](LICENSE)
+![Meta Global AI Developer Hackathon](https://img.shields.io/badge/Meta%20Global%20AI%20Hackathon-agentic%20research-8A2BE2)
 
 A hierarchical, autonomous browser agent (LangGraph + Playwright) that runs with ONE secret: `MODEL_API_KEY` for the Meta Model API. In **cloud-only** mode every role runs on Meta's `muse-spark-1.3`; with the optional `BASETEN_API_KEY` it becomes **hybrid**: planner and reporter stay text-only on Meta, while executor and verifier see screenshots through the open-weights `meta-models/muse-spark-open-1026` on Baseten. The Privacy Ledger proves which endpoint saw what — and now what it cost.
 
@@ -31,6 +41,38 @@ flowchart LR
 - **Executor** and **Verifier** see screenshots. In hybrid mode they run the open-weights model on Baseten so page pixels never leave to Meta; in cloud-only mode they run on the Meta Model API. The verifier judges steps from raw page text plus evidence and emits one of three verdicts: `done`, `retry`, `replan`. Retries stay local (executor↔verifier) and only escalate to the planner when the retry budget is exhausted, the step is impossible, or the plan ends.
 - **Deterministic evidence check**: no model grades itself. Every claimed evidence excerpt is re-checked in code against verbatim page text (NFKC + typography folding: curly quotes, dashes, NBSP and zero-width characters are normalized before matching); unprovable claims are dropped and a `done` becomes a `retry`.
 - **Privacy Ledger** (`ledger.py`) counts every LLM call: bytes out, tokens (including cached tokens), images out per endpoint and role — plus the billed `cost_usd` for the Meta endpoint (the open-weights endpoint runs on Baseten credits, so it never adds billed cost).
+
+## Run workflow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Composer / POST /run
+    participant P as Planner — Meta, text-only
+    participant X as Executor — VLM
+    participant B as Chromium · Playwright
+    participant V as Verifier
+    participant R as Reporter — Meta, text-only
+    participant D as Dashboard · SSE
+    U->>P: goal (one sentence or a full brief)
+    P->>X: step list + current step
+    loop every step
+        X->>B: navigate / click / read / screenshot
+        B-->>X: page text + shot (robots.txt checked first)
+        X->>D: frames out — live view + ledger tick
+        X->>V: step report + claimed evidence
+        V->>V: deterministic check: quote ∈ raw page text
+        alt done
+            V->>X: next step
+        else retry
+            V->>X: verdict back (local, bounded budget)
+        else replan / retries exhausted
+            V->>P: escalate → planner rewrites the plan
+        end
+    end
+    P->>R: goal complete
+    R->>D: cited report + evidence ids (3 KB live card)
+```
 
 ## Quickstart
 
@@ -136,6 +178,40 @@ Per task the bench records success, wall seconds, steps, planner calls and the f
 | Profile | Success rate | Cloud tokens | Open token share | Images to cloud | Wall (s) |
 |---|---|---|---|---|---|
 | *(fill from `bench/summary.md` after a real run)* | | | | | |
+
+## The three-minute demo
+
+Submitted via the Cerebral Valley platform (primary judging artifact), built with the repo's own recording kit — every dashboard frame is one genuine run, no staging, no invented numbers:
+
+| artifact | what it is |
+|---|---|
+| `demo/out/nexus_demo.mp4` | 101.6 s · 1920×1080 H.264 — intro card → real composer typing → Start → planner split → source navigation (SIA → commerce.gov → NIST → OECD) → 4 verbatim-verified evidence quotes → a live bot-check pivot → Privacy Ledger at the cut |
+| `demo/out/nexus_demo.srt` | caption sidecar (10 cues, real timestamps) — captions are **not** burned into the frame |
+| `demo/out/proof_cut.mp4` / `demo/out/proof_contact_sheet.png` | 35 s teaser + 6-frame verification sheet |
+| `demo/build_demo_from_proof.py` | rebuilds the video from run bytes in ~1 min, zero LLM spend (`python demo/record_demo.py` records a fresh one) |
+
+**Disclosed honestly:** the shown run hit the recorder's watchdog mid-research (still executing at T+4:58 with the Evidence panel at 4 verified quotes). It proves the engine at depth; a finished-run cut needs a goal that completes in ≤ ~165 s. Run receipts (visible on screen in the video, all from the Privacy Ledger):
+
+| meter | value at the cut |
+|---|---|
+| billed (Meta endpoint) | **$0.22** |
+| analyzer calls | 24 |
+| tokens | 199k |
+| bytes out (frames + text) | 3.2 MB |
+| screenshots sent to cloud | 23 → 24 |
+| sites visited | 10 |
+| evidence (verbatim-verified) | 4 quotes |
+| escalations (verifier → planner re-plan) | 1 |
+| billed tokens on open weights | 0.0 % (cloud-only mode; hybrid sends page pixels to Baseten instead) |
+
+## Roadmap
+
+- **Search that bots can't scam:** a LangGraph-native `web_search` tool node (moderated SERP/SearXNG provider) so the planner starts from structured results instead of steering Chromium into bot-walled search engines — the run above shows exactly why: DuckDuckGo threw an "are you human" interstitial, the agent pivoted to NIST and OECD instead of crashing.
+- **Muse Image inside reports:** render charts/diagrams for quantitative findings (the goal brief already asks for "quantitative comparisons") via `Muse Image` through the same one-secret settings surface, images metered separately in the ledger.
+- **Muse Voice Transcribe:** dictate the goal, get an audio briefing of the finished report; also feeds the demo recorder's `--voiceover path.wav` mux.
+- **Muse Wonder + SAM 3.1:** prompt-driven storyboard for complex multi-entity pages and click-level visual grounding on screenshots for the executor's pointer decisions.
+- **HitL checkpoints:** pause-and-ask entry points for ambiguous research paths before the swarm wanders (the application pitch) — plumbing already splits planner/user roles.
+- **Swarm lanes:** run independent plan branches as parallel executor/verifier pairs on disjoint tabs, merged by the planner — the LangGraph state graph is already role-typed for it.
 
 ## Safety notes
 
